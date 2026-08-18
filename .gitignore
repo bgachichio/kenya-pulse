@@ -1,0 +1,24 @@
+# generated data — output, not source
+public/
+history.jsonl
+history.jsonl.bak
+state.json
+archive/
+run.log
+
+# your own figures
+manual.json
+
+# build artefacts
+node_modules/
+dist/
+dev-dist/
+.vercel/
+
+# secrets
+.env
+.env.*
+
+# noise
+.DS_Store
+*.swp

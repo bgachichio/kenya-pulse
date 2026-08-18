@@ -1,0 +1,19 @@
+{
+  "core": 3.2,
+  "credit": 10.2,
+  "npl": 14.6,
+  "pmi": 51.8,
+  "reserves": 15.25,
+  "cover": 6.3,
+  "cab": -3.0,
+  "gdp": 5.3,
+  "debt": 13.02,
+  "debt_gdp": 69.9,
+  "debtserv": 69,
+  "tbill182": 9.34,
+  "tbill364": 10.12,
+  "bond10": 13.45,
+  "infra": 12.80,
+  "mmf_top": 12.10,
+  "mmf_avg": 9.10
+}
