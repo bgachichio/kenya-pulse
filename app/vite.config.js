@@ -8,10 +8,10 @@ export default defineConfig({
     includeAssets: ['icon-192.png', 'icon-512.png'],
     manifest: {
       name: 'Kenya Pulse',
-      short_name: 'Pulse',
+      short_name: 'Kenya Pulse',
       description: 'The Kenyan economy at a glance, and where money is being paid',
       theme_color: '#237352',
-      background_color: '#FAF8F4',
+      background_color: '#F2F2F7',
       display: 'standalone',
       orientation: 'portrait',
       start_url: '/',

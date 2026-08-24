@@ -1,0 +1,16 @@
+key,value,asOf,notes
+npl,14.6,2026-07-31,CBK monthly — falls back to World Bank annual if left stale
+reserves,15.25,2026-08-13,CBK USABLE reserves — falls back to World Bank total, relabelled
+cover,6.3,2026-08-13,months of import cover — falls back to World Bank annual
+debt_gdp,69.9,2026-03-31,Treasury monthly — falls back to the IMF annual figure
+cab,-3.0,2026-06-30,CBK 12-month current account — falls back to IMF annual
+#,,,
+#,,,"EVERYTHING ELSE IS FETCHED. Leave it alone."
+#,,,"cbr kesonia repo discount tbill inflation lending savings deposit FX — CBK daily"
+#,,,"mmf_top mmf_avg — Serrari MMF table, daily"
+#,,,"bond10 infra — Serrari bond yields, daily"
+#,,,"tbill182 tbill364 — Serrari auction results, weekly"
+#,,,"pmi debt gdp — Trading Economics, on release"
+#,,,"nasi nse20 nse25 bank_idx mktcap — NSE, daily"
+#,,,"fed_funds us10y — FRED daily · world/SSA growth — IMF"
+#,,,"debtserv — World Bank annual, relabelled 'Interest to revenue'"

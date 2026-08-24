@@ -24,6 +24,37 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
    invisible on another, which is the usual reason a deployed app appears to
    "forget" — two URLs for the same app, each with its own drawer.
 --------------------------------------------------------------------------- */
+/* The feed is fixed. It is one file on one server and it is not going to move,
+   so making it a setting only invited people to break it. */
+const FEED = "https://gachichio.org/pulse/data.json";
+
+/* Deep links. #edge, #trends/inflation, #pulse/cbr — so a finding can be shared,
+   not just the app. The hash is rewritten as you move, and read on arrival. */
+const TAB_IDS = ["pulse", "edge", "trends", "outlook", "data"];
+
+function readHash() {
+  try {
+    const raw = (window.location.hash || "").replace(/^#\/?/, "");
+    if (!raw) return {};
+    const [tab, id] = raw.split("/");
+    return { tab: TAB_IDS.includes(tab) ? tab : null, id: id ? decodeURIComponent(id) : null };
+  } catch { return {}; }
+}
+
+function writeHash(tab, id) {
+  try {
+    const h = "#" + tab + (id ? "/" + encodeURIComponent(id) : "");
+    if (window.location.hash !== h) window.history.replaceState(null, "", h);
+  } catch { /* not fatal */ }
+}
+
+function linkTo(tab, id) {
+  try {
+    const { origin, pathname } = window.location;
+    return `${origin}${pathname}#${tab}${id ? "/" + encodeURIComponent(id) : ""}`;
+  } catch { return ""; }
+}
+
 const SCHEMA = 1;
 const mem = {};
 const diag = { ok: null, error: null, writes: 0, lastWrite: null };
@@ -93,16 +124,41 @@ const store = {
    hook exists so the first schema change does not cost anyone their settings. */
 function migrate(old) { return old; }
 
+/* Palette follows Apple's grouped-list conventions — layered greys, hairline
+   separators, a label hierarchy of three weights — but keeps the house green as
+   the tint rather than borrowing system blue. The structure is theirs, the
+   colour is yours. */
 const THEME = {
-  light: { bg: "#FAF8F4", card: "#FFFFFF", line: "#E8E2D8", ink: "#1A1F27",
-    dim: "#66707E", faint: "#9BA3AF", good: "#237352", warn: "#B0642A",
-    bad: "#B3261E", cool: "#1F3864", chip: "#F1ECE3",
-    shadow: "0 1px 2px rgba(26,31,39,.05)", lift: "0 4px 16px rgba(26,31,39,.09)" },
-  dark: { bg: "#0F141A", card: "#171E26", line: "#262F3A", ink: "#E9EBEE",
-    dim: "#98A2AF", faint: "#69737F", good: "#3E9E77", warn: "#D18A4E",
-    bad: "#E06A5F", cool: "#7C9BD4", chip: "#1D252F",
-    shadow: "none", lift: "0 4px 16px rgba(0,0,0,.35)" },
+  light: {
+    bg: "#F2F2F7",                       // grouped background
+    card: "#FFFFFF",                     // raised content
+    line: "rgba(60,60,67,0.13)",         // hairline separator
+    ink: "#0B0B0C",                      // primary label
+    dim: "rgba(60,60,67,0.62)",          // secondary label
+    faint: "rgba(60,60,67,0.32)",        // tertiary label
+    good: "#1E7A55", warn: "#B0642A", bad: "#C0392E", cool: "#237352",
+    chip: "rgba(118,118,128,0.10)",
+    shadow: "0 1px 2px rgba(16,20,26,.05), 0 6px 18px rgba(16,20,26,.04)",
+    seg: "rgba(118,118,128,0.10)",
+    segOn: "#FFFFFF",
+    segShadow: "0 3px 8px rgba(0,0,0,.10), 0 3px 1px rgba(0,0,0,.04)",
+  },
+  dark: {
+    bg: "#000000",
+    card: "#1C1C1E",
+    line: "rgba(84,84,88,0.42)",
+    ink: "#FFFFFF",
+    dim: "rgba(235,235,245,0.60)",
+    faint: "rgba(235,235,245,0.32)",
+    good: "#32C77F", warn: "#E39B54", bad: "#FF6B5E", cool: "#3E9E77",
+    chip: "rgba(118,118,128,0.22)",
+    shadow: "none",
+    seg: "rgba(118,118,128,0.24)",
+    segOn: "#48484A",
+    segShadow: "0 3px 8px rgba(0,0,0,.24)",
+  },
 };
+
 const SIZES = { s: 14, m: 16, l: 18, xl: 21 };
 
 /* ===========================================================================
@@ -154,137 +210,229 @@ const FORECAST = {
 };
 
 const SEED = {
-  asOf: "2026-08-17", source: "seed", pulse: 50, verdict: "MIXED",
+  asOf: "2026-08-17", source: "seed",
   indicators: [
     { id: "cbr", label: "Central Bank Rate", group: "Policy", unit: "%", dir: 0,
-      value: 8.75, prior: 9.0, priorLabel: "December", asOf: "8 Apr 2026", freq: "Bi-monthly", src: "CBK",
+      value: 8.75, prior: 9.0, priorLabel: "December", asOf: "8 Apr 2026", src: "CBK",
       hist: [10.75,10.25,10,9.75,9.5,9.25,9,8.75,8.75,8.75,8.75],
+      what: "The rate the Central Bank charges banks to borrow overnight.",
+      why: "It is the anchor every other rate in the country is priced off. When it falls, loans eventually get cheaper and savings eventually pay less \u2014 eventually being the operative word.",
       note: "Fourth straight hold, the longest pause since 2020. Next meeting October." },
     { id: "kesonia", label: "KESONIA overnight", group: "Policy", unit: "%", dir: 0,
-      value: 8.7494, prior: 8.71, priorLabel: "a week ago", asOf: "14 Aug 2026", freq: "Daily", src: "CBK",
+      value: 8.7494, prior: 8.71, priorLabel: "a week ago", asOf: "14 Aug 2026", src: "CBK",
       hist: [8.68,8.71,8.74,8.72,8.75,8.71,8.7494],
+      what: "What banks actually charge each other for overnight money, averaged across the market.",
+      why: "It shows whether the policy rate is real. Sitting on the policy rate means the money market is calm; drifting above it means cash is tight somewhere.",
       note: "Sitting almost exactly on the policy rate. The overnight market is in balance — no liquidity stress, no flood." },
     { id: "tbill", label: "91-day Treasury bill", group: "Policy", unit: "%", dir: 0,
-      value: 8.773, prior: 7.64, priorLabel: "February", asOf: "17 Aug 2026", freq: "Weekly", src: "CBK",
+      value: 8.773, prior: 7.64, priorLabel: "February", asOf: "17 Aug 2026", src: "CBK",
       hist: [9.1,8.9,8.6,8.3,8.1,7.9,7.64,8.12,8.45,8.61,8.773],
+      what: "The return on lending money to the government for three months.",
+      why: "The closest thing to a risk-free rate in Kenya, and the yardstick every other investment should beat. It also shows what the market thinks of the government's borrowing.",
       note: "Up 113bp since February while the policy rate held. The market is repricing the front end on its own." },
+    { id: "tbill182", label: "182-day Treasury bill", group: "Policy", unit: "%", dir: 0,
+      value: 8.97, prior: 9.34, priorLabel: "previous auction", asOf: "Jul 2026", src: "Serrari",
+      what: "The return on lending to the government for six months.",
+      why: "The middle of the short curve. Sitting above the 91-day means the market wants paying to lend for longer.",
+      hist: [9.4,9.3,9.2,9.1,9.0,8.97],
+      note: "From the most recent auction." },
+
+    { id: "tbill364", label: "364-day Treasury bill", group: "Policy", unit: "%", dir: 0,
+      value: 9.04, prior: 10.12, priorLabel: "previous auction", asOf: "Jul 2026", src: "Serrari",
+      what: "The return on lending to the government for a year.",
+      why: "The longest bill. The gap between this and the 91-day shows what the market thinks rates will do over the next year.",
+      hist: [10.1,9.9,9.7,9.4,9.2,9.04],
+      note: "Only 7bp above the 182-day — the short curve is almost flat." },
+
+    { id: "discount", label: "Discount window", group: "Policy", unit: "%", dir: 0,
+      value: 9.25, prior: 9.25, priorLabel: "unchanged", asOf: "8 Apr 2026", src: "CBK",
+      what: "What the Central Bank charges a bank that needs emergency cash.",
+      why: "The ceiling of the corridor. A bank paying this rate has run out of cheaper options.",
+      hist: [9.25,9.25,9.25,9.25], note: "Held with the policy rate." },
+
     { id: "repo", label: "REPO rate", group: "Policy", unit: "%", dir: 0,
-      value: 9.25, prior: 9.25, priorLabel: "unchanged", asOf: "15 Oct 2025", freq: "Weekly", src: "CBK",
-      hist: [9.25,9.25,9.25,9.25], note: "The ceiling of the corridor." },
+      value: 9.25, prior: 9.25, priorLabel: "unchanged", asOf: "15 Oct 2025", src: "CBK",
+      hist: [9.25,9.25,9.25,9.25], what: "The rate at which the Central Bank lends to banks against collateral.",
+      why: "It caps how expensive overnight money can get. Think of it as the ceiling of a corridor with the policy rate in the middle.",
+      note: "The ceiling of the corridor." },
     { id: "bond10", label: "10-year bond", group: "Policy", unit: "%", dir: 0,
-      value: 13.45, prior: 13.6, priorLabel: "last month", asOf: "Aug 2026", freq: "Monthly", src: "Typed",
+      value: 13.45, prior: 13.6, priorLabel: "last month", asOf: "Aug 2026", src: "Typed",
       hist: [14.2,14,13.85,13.7,13.6,13.45],
+      what: "The return on lending to the government for ten years.",
+      why: "Long money prices long risk. Compared against the US ten-year it shows what the world charges Kenya for the privilege of borrowing.",
       note: "Against a US 10-year at 4.63%, a spread of 882bp." },
 
     { id: "inflation", label: "Headline inflation", group: "Prices", unit: "%", dir: -1,
-      value: 6.49, prior: 6.4, priorLabel: "June", asOf: "Jul 2026", freq: "Monthly", src: "CBK",
+      value: 6.49, prior: 6.4, priorLabel: "June", asOf: "Jul 2026", src: "CBK",
       band: [2.5, 7.5], bandLabel: "CBK target band 2.5–7.5%",
+      what: "How much more the same shopping basket costs than a year ago.",
+      why: "It is the rate at which money loses its purchasing power. Every return you earn has to beat this before you have gained anything at all.",
       hist: [3.8,4.1,4.5,4.6,4.6,4.5,4.5,4.4,4.3,4.4,5.6,6.7,6.4,6.49],
-      note: "Transport and food carry it. Non-core runs at 15% against core at 3.2% — a supply shock, not demand." },
-    { id: "core", label: "Core inflation", group: "Prices", unit: "%", dir: -1,
-      value: 3.2, prior: 3.2, priorLabel: "June", asOf: "Jul 2026", freq: "Monthly", src: "Typed",
-      hist: [3,3.1,3.1,3.2,3.2,3.2,3.2],
-      note: "Flat. No demand pressure, which is why the MPC can sit still through a 6.5% headline." },
+      note: "Transport and food carry it. Non-core runs well above core — a supply shock, not demand." },
 
     { id: "lending", label: "Average lending rate", group: "Banking", unit: "%", dir: -1,
-      value: 14.38, prior: 14.5, priorLabel: "May", asOf: "Jun 2026", freq: "Monthly", src: "CBK",
+      value: 14.38, prior: 14.5, priorLabel: "May", asOf: "Jun 2026", src: "CBK",
       hist: [17.2,16.8,16.1,15.6,15.2,14.9,14.7,14.5,14.38],
+      what: "The average rate banks charge borrowers.",
+      why: "What credit actually costs. The distance between this and the policy rate is the bank's margin, and it tells you how much of any rate cut has reached real borrowers.",
       note: "Down 282bp from the November 2024 peak, but still 563bp over policy." },
     { id: "deposit", label: "Average deposit rate", group: "Banking", unit: "%", dir: 1,
-      value: 6.84, prior: 7.1, priorLabel: "May", asOf: "Jun 2026", freq: "Monthly", src: "CBK",
+      value: 6.84, prior: 7.1, priorLabel: "May", asOf: "Jun 2026", src: "CBK",
       hist: [9.2,8.9,8.4,8,7.6,7.3,7.1,6.84],
+      what: "The average rate banks pay on fixed deposits.",
+      why: "What your money earns for sitting in a bank. Compare it to inflation: below, and the bank is charging you for the privilege.",
       note: "Falling faster than lending rates. Banks are protecting margin from the deposit side." },
     { id: "savings", label: "Average savings rate", group: "Banking", unit: "%", dir: 1,
-      value: 3.32, prior: 3.4, priorLabel: "May", asOf: "Jun 2026", freq: "Monthly", src: "CBK",
+      value: 3.32, prior: 3.4, priorLabel: "May", asOf: "Jun 2026", src: "CBK",
+      what: "The average rate banks pay on ordinary savings accounts.",
+      why: "Almost always far below inflation, which makes an ordinary savings account the most expensive safe place to keep money.",
       hist: [4.2,4,3.8,3.6,3.5,3.4,3.32],
-      note: "Against 6.49% inflation, a savings account loses 3.7% of its purchasing power a year." },
-    { id: "credit", label: "Private sector credit growth", group: "Banking", unit: "%", dir: 1,
-      value: 10.2, prior: 10.6, priorLabel: "June", asOf: "Jul 2026", freq: "Monthly", src: "Typed",
-      hist: [-2.9,0.4,2.1,3.6,5,6.3,7,7.4,7.1,9.3,10.6,10.2],
-      note: "From a 2.9% contraction in January 2025 to double digits. Trade, construction and agriculture lead." },
+      note: "Against 6.49% inflation, a savings account loses about 3.7% of its purchasing power a year." },
+
     { id: "npl", label: "Non-performing loans", group: "Banking", unit: "%", dir: -1,
-      value: 14.6, prior: 15.3, priorLabel: "May", asOf: "Jul 2026", freq: "Monthly", src: "Typed",
+      value: 14.6, prior: 15.3, priorLabel: "May", asOf: "Jul 2026", src: "Typed",
       hist: [17.6,17.1,16.5,16,15.4,15.3,14.6],
+      what: "The share of loans where borrowers have stopped paying.",
+      why: "The health of the banking system in one number. Rising means either banks lent badly or borrowers are struggling, and both eventually tighten credit for everyone.",
       note: "Falling across every major sector. Still roughly three times a healthy book." },
 
     { id: "kes_usd", label: "KES per USD", group: "External", unit: "", dir: -1,
-      value: 129.34, prior: 129.24, priorLabel: "yesterday", asOf: "17 Aug 2026", freq: "Daily", src: "CBK",
+      value: 129.34, prior: 129.24, priorLabel: "yesterday", asOf: "17 Aug 2026", src: "CBK",
       hist: [129.2,129.3,129.1,129.2,129.2,129.1,129.24,129.34],
+      what: "How many shillings it takes to buy one dollar.",
+      why: "Kenya imports fuel, machinery and medicine in dollars. A weaker shilling makes all of it dearer, and that shows up in inflation two or three months later.",
       note: "Pinned near 129 for over a year. That stability is doing quiet work on inflation expectations." },
+    { id: "kes_eur", label: "KES per EUR", group: "External", unit: "", dir: -1,
+      value: 149.6, prior: 149.2, priorLabel: "yesterday", asOf: "17 Aug 2026", src: "CBK",
+      what: "How many shillings it takes to buy one euro.",
+      why: "Europe is a major market for Kenyan tea, flowers and vegetables. A stronger euro is good for exporters and bad for anyone importing from the bloc.",
+      hist: [148.1,148.6,149.0,148.8,149.2,149.6], note: "Official CBK indicative rate." },
+
+    { id: "kes_gbp", label: "KES per GBP", group: "External", unit: "", dir: -1,
+      value: 175.11, prior: 174.8, priorLabel: "yesterday", asOf: "17 Aug 2026", src: "CBK",
+      what: "How many shillings it takes to buy one pound.",
+      why: "Matters for UK trade, tuition and the large Kenyan community in Britain sending money home.",
+      hist: [173.4,174.0,174.5,174.2,174.8,175.11], note: "Official CBK indicative rate." },
+
+    { id: "cover", label: "Import cover", group: "External", unit: " months", dir: 1,
+      value: 6.3, prior: 5.6, priorLabel: "June", asOf: "Aug 2026", src: "Typed",
+      band: [4, 24], bandLabel: "Statutory floor 4 months",
+      what: "How many months of imports the country could pay for out of reserves alone.",
+      why: "The practical measure of the external buffer. Below four months and the Central Bank starts losing room to defend the shilling.",
+      hist: [4.6,4.9,5.1,5.3,5.6,6.0,6.3],
+      note: "Comfortably above the four-month statutory floor." },
+
     { id: "reserves", label: "FX reserves", group: "External", unit: "$bn", dir: 1,
-      value: 15.25, prior: 13.2, priorLabel: "June", asOf: "Aug 2026", freq: "Weekly", src: "Typed",
+      value: 15.25, prior: 13.2, priorLabel: "June", asOf: "Aug 2026", src: "Typed",
       hist: [9.8,10.4,11.2,11.8,12.4,13.2,14.1,15.25],
+      what: "The foreign currency the Central Bank holds.",
+      why: "The country's buffer. It is what defends the shilling in a bad month and pays for imports when export earnings fall short.",
       note: "6.3 months of import cover against a 4-month floor. The strongest buffer in a decade." },
     { id: "cab", label: "Current account", group: "External", unit: "% GDP", dir: 1,
-      value: -3.0, prior: -1.9, priorLabel: "a year ago", asOf: "12m to Jun 2026", freq: "Quarterly", src: "Typed",
+      value: -3.0, prior: -1.9, priorLabel: "a year ago", asOf: "12m to Jun 2026", src: "Typed",
       hist: [-1.9,-2.1,-2.4,-2.7,-3],
+      what: "The gap between what Kenya earns abroad and what it spends abroad.",
+      why: "A persistent deficit must be funded by borrowing or investment from outside. It is the external equivalent of spending more than you earn.",
       note: "Widening as imports outrun exports. The one external line genuinely deteriorating." },
 
     { id: "gdp", label: "GDP growth", group: "Activity", unit: "%", dir: 1,
-      value: 5.3, prior: 4.9, priorLabel: "Q1 2025", asOf: "Q1 2026", freq: "Quarterly", src: "KNBS",
+      value: 5.3, prior: 4.9, priorLabel: "Q1 2025", asOf: "Q1 2026", src: "KNBS",
       hist: [4.9,5,4.6,4.8,5.3],
+      what: "How much more the economy produced than in the same quarter last year.",
+      why: "The broadest measure of whether the country is getting richer. It arrives late, so most of what it reports you could already see in credit and activity data.",
       note: "Broad-based across industry and services." },
     { id: "pmi", label: "Stanbic PMI", group: "Activity", unit: "", dir: 1,
-      value: 51.8, prior: 51.2, priorLabel: "June", asOf: "Jul 2026", freq: "Monthly", src: "Typed",
+      value: 51.8, prior: 51.2, priorLabel: "June", asOf: "Jul 2026", src: "Typed",
       band: [50, 100], bandLabel: "Above 50 means expansion",
       hist: [49.6,50.1,50.8,51.4,50.9,51.2,51.8],
+      what: "A monthly survey of purchasing managers. Above 50 means expansion.",
+      why: "The earliest read on activity there is, published on the first working day of each month \u2014 months before GDP confirms the same story.",
       note: "The earliest read on activity there is — published on the first working day, months before GDP." },
 
     { id: "nasi", label: "NSE All Share", group: "Markets", unit: "", dir: 1,
-      value: 241.18, prior: 238.13, priorLabel: "14 Aug", asOf: "17 Aug 2026", freq: "Daily", src: "NSE",
+      value: 241.18, prior: 238.13, priorLabel: "14 Aug", asOf: "17 Aug 2026", src: "NSE",
       hist: [186,194,203,212,221,228,231.6,236.3,238.13,241.18],
+      what: "The value of every share on the Nairobi exchange, as an index.",
+      why: "The market's collective opinion on the future of listed companies. It usually moves before earnings do.",
       note: "Up 27.6% this year. Straight from the exchange, not a republisher." },
     { id: "nse20", label: "NSE 20 Share", group: "Markets", unit: "", dir: 1,
-      value: 4178.5, prior: 4136.12, priorLabel: "previous close", asOf: "17 Aug 2026", freq: "Daily", src: "NSE",
+      value: 4178.5, prior: 4136.12, priorLabel: "previous close", asOf: "17 Aug 2026", src: "NSE",
       hist: [3170,3320,3480,3640,3790,3920,4050,4136,4178.5],
+      what: "An index of twenty large, actively traded shares.",
+      why: "The older, narrower gauge. Useful for comparison with the past, less representative of the market today.",
       note: "Third-party feeds were quoting 3,710 on the same day the exchange published 4,178.50." },
+    { id: "nse25", label: "NSE 25 Share", group: "Markets", unit: "", dir: 1,
+      value: 6717.1, prior: 6650.2, priorLabel: "previous close", asOf: "17 Aug 2026", src: "NSE",
+      what: "An index of twenty-five shares weighted by size and liquidity.",
+      why: "A middle ground between the narrow NSE 20 and the all-inclusive NASI.",
+      hist: [5100,5400,5700,6000,6250,6450,6650,6717.1],
+      note: "Broader than the NSE 20 and less dominated by a handful of names." },
+
     { id: "bank_idx", label: "NSE Banking Sector", group: "Markets", unit: "", dir: 1,
-      value: 279.9, prior: 276.63, priorLabel: "previous close", asOf: "17 Aug 2026", freq: "Daily", src: "NSE",
+      value: 279.9, prior: 276.63, priorLabel: "previous close", asOf: "17 Aug 2026", src: "NSE",
       hist: [206,218,231,244,256,265,272,276.6,279.9],
+      what: "An index of listed banking shares.",
+      why: "Banks are the plumbing of the economy, so their share prices tend to price a recovery before the wider market notices it.",
       note: "Up 35.8% this year, ahead of the wider market. Pricing the credit recovery before earnings show it." },
     { id: "mktcap", label: "NSE market cap", group: "Markets", unit: " KES bn", dir: 1,
-      value: 4047.48, prior: 3996.38, priorLabel: "previous close", asOf: "17 Aug 2026", freq: "Daily", src: "NSE",
+      value: 4047.48, prior: 3996.38, priorLabel: "previous close", asOf: "17 Aug 2026", src: "NSE",
       hist: [3200,3400,3600,3800,3950,4040,3996,4047.48],
+      what: "What every listed company is collectively worth.",
+      why: "Against the size of the economy it shows whether the market is cheap or dear compared with its own history.",
       note: "About $31bn, or 23% of GDP." },
 
     { id: "debt", label: "Public debt stock", group: "Fiscal", unit: " KES tn", dir: -1,
-      value: 13.02, prior: 12.82, priorLabel: "March", asOf: "May 2026", freq: "Monthly", src: "Typed",
+      value: 13.02, prior: 12.82, priorLabel: "March", asOf: "May 2026", src: "Typed",
       hist: [11.13,11.8,12.29,12.4,12.84,12.82,13.02],
+      what: "The total the government owes, at home and abroad.",
+      why: "Every shilling of it must eventually be repaid out of taxes. The pace at which it grows matters more than the level.",
       note: "KES 10tn to 13tn in fifteen months. The pace is the story, not the level." },
     { id: "debt_gdp", label: "Public debt to GDP", group: "Fiscal", unit: "%", dir: -1,
-      value: 69.9, prior: 69.5, priorLabel: "February", asOf: "Mar 2026", freq: "Monthly", src: "Typed",
+      value: 69.9, prior: 69.5, priorLabel: "February", asOf: "Mar 2026", src: "Typed",
       band: [0, 55], bandLabel: "Statutory anchor 55% by 2028",
       hist: [66.2,67,67.6,67.8,69.5,69.9],
+      what: "Government debt measured against the size of the economy.",
+      why: "The standard way of asking whether a debt is large relative to the ability to repay it. Parliament's own ceiling is 55%.",
       note: "14.9pp above Parliament's anchor. The IMF sees 71.6% this year and no inflection to 2031." },
     { id: "debtserv", label: "Debt service to revenue", group: "Fiscal", unit: "%", dir: -1,
-      value: 69, prior: 63, priorLabel: "FY23/24", asOf: "FY24/25", freq: "Annual", src: "Typed",
+      value: 69, prior: 63, priorLabel: "FY23/24", asOf: "FY24/25", src: "Typed",
       band: [0, 30], bandLabel: "IMF comfort threshold 30%",
       hist: [48,55,59,63,69],
+      what: "The share of government revenue spent on interest and repayments.",
+      why: "The most binding number in Kenyan public finance. Every shilling here is one that cannot build a road or staff a clinic.",
       note: "KES 1.72tn against ordinary revenue. More than twice the threshold, and the binding constraint on everything else." },
 
     { id: "fed_funds", label: "US Fed funds", group: "Global", unit: "%", dir: 0,
-      value: 3.63, prior: 4.33, priorLabel: "a year ago", asOf: "13 Aug 2026", freq: "Daily", src: "FRED",
+      value: 3.63, prior: 4.33, priorLabel: "a year ago", asOf: "13 Aug 2026", src: "FRED",
       hist: [5.33,5.33,4.83,4.58,4.33,4.33,4.08,3.88,3.63],
+      what: "The US central bank's policy rate.",
+      why: "It sets the return on holding dollars. When it falls, money looks harder for yield elsewhere \u2014 which is quietly good for the shilling and for Kenyan bonds.",
       note: "170bp of cuts. A falling Fed narrows the carry on holding dollars, which is quietly supportive of the shilling." },
     { id: "us10y", label: "US 10-year", group: "Global", unit: "%", dir: 0,
-      value: 4.63, prior: 4.28, priorLabel: "a year ago", asOf: "13 Aug 2026", freq: "Daily", src: "FRED",
+      value: 4.63, prior: 4.28, priorLabel: "a year ago", asOf: "13 Aug 2026", src: "FRED",
       hist: [4.28,4.15,4.35,4.5,4.4,4.55,4.7,4.63],
+      what: "The return on lending to the US government for ten years.",
+      why: "The world's risk-free rate. Everything else, including Kenyan debt, is priced as a premium on top of it.",
       note: "Rising while the Fed cuts. The long end is pricing something the short end is not." },
     { id: "ssa_gdp", label: "Sub-Saharan Africa growth", group: "Global", unit: "%", dir: 1,
-      value: 4.3, prior: 4.5, priorLabel: "2025", asOf: "2026 forecast", freq: "Annual", src: "IMF",
+      value: 4.3, prior: 4.5, priorLabel: "2025", asOf: "2026 forecast", src: "IMF",
       hist: [3.6,4,4.5,4.3],
+      what: "Expected growth across Sub-Saharan Africa.",
+      why: "Kenya's neighbourhood and its main regional market. Kenya growing faster than the region is the case for investing here rather than next door.",
       note: "Kenya is forecast to grow above the regional average through 2031." },
     { id: "world_gdp", label: "World growth", group: "Global", unit: "%", dir: 1,
-      value: 3.1, prior: 3.4, priorLabel: "2025", asOf: "2026 forecast", freq: "Annual", src: "IMF",
+      value: 3.1, prior: 3.4, priorLabel: "2025", asOf: "2026 forecast", src: "IMF",
       hist: [3.5,3.3,3.4,3.1],
+      what: "Expected growth for the world economy.",
+      why: "It sets demand for Kenya's tea, coffee, flowers and tourism. A slowing world reaches Nairobi through the export desk.",
       note: "Slowing. Export demand and tourism both take their cue from this." },
   ],
 
   /* ---- LAYER 1: after-tax real return, computed by the collector ---- */
   ladder: [
-    { id: "infra", label: "Infrastructure bond", gross: 12.8, taxPct: 0, net: 12.8, real: 6.31, note: "tax-exempt", doublingYears: 11.4 },
+    { id: "infra", label: "Infrastructure bond", gross: 12.8, taxPct: 0, net: 12.8, real: 6.31, note: "tax-exempt", doublingYears: 11.4, typed: true, asOf: "2026-08-01", ageDays: 17, stale: false },
     { id: "bond10", label: "10-year bond", gross: 13.45, taxPct: 10, net: 12.11, real: 5.62, note: "10% WHT", doublingYears: 12.8 },
-    { id: "mmf_top", label: "Top-quartile MMF", gross: 12.1, taxPct: 15, net: 10.29, real: 3.79, note: "15% WHT", doublingYears: 19.0 },
+    { id: "mmf_top", label: "Top-quartile MMF", gross: 12.1, taxPct: 15, net: 10.29, real: 3.79, note: "15% WHT", doublingYears: 19.0, typed: true, asOf: "2026-04-01", ageDays: 139, stale: true },
     { id: "tbill364", label: "364-day bill", gross: 10.12, taxPct: 15, net: 8.6, real: 2.11, note: "15% WHT", doublingYears: 34.1 },
     { id: "tbill182", label: "182-day bill", gross: 9.34, taxPct: 15, net: 7.94, real: 1.45, note: "15% WHT", doublingYears: 49.7 },
     { id: "mmf_avg", label: "MMF industry average", gross: 9.1, taxPct: 15, net: 7.73, real: 1.24, note: "15% WHT", doublingYears: 58.1 },
@@ -304,33 +452,28 @@ const SEED = {
       why: "The market's first opinion on policy" },
     { id: "lending", label: "Lending rate", lagMonths: 5, value: 14.38, move: -0.52, status: "moved",
       why: "Banks reprice slowly, and downward last" },
-    { id: "credit", label: "Credit growth", lagMonths: 8, value: 10.2, move: 3.2, status: "moved",
-      why: "Borrowers respond once loans are cheaper" },
     { id: "gdp", label: "GDP growth", lagMonths: 11, value: 5.3, move: 0.4, status: "still",
-      why: "Activity follows the credit that funds it" },
+      why: "Activity follows the cost of borrowing, at a long remove" },
   ],
 
   /* ---- LAYER 3: relationships that have come apart ---- */
   breaks: [
-    { name: "Bank margin over policy", value: 5.63, unit: "pp", normalLo: 3.5, normalHi: 5.5, state: "high",
+    { name: "Bank margin over policy", value: 5.63, unit: "pp", normalLo: 3.5, normalHi: 5.5, state: "high", basis: "judgement", n: 0,
       why: "Average lending rate less the Central Bank Rate.",
       reading: "Banks are holding spreads wide while policy eases. Transmission is incomplete, so more of the cut has yet to reach borrowers — and more of the fall in lending rates is still to come." },
-    { name: "91-day over policy", value: 0.02, unit: "pp", normalLo: -1, normalHi: 0.75, state: "normal",
+    { name: "91-day over policy", value: 0.02, unit: "pp", normalLo: -1, normalHi: 0.75, state: "normal", basis: "judgement", n: 0,
       why: "91-day bill less the Central Bank Rate.",
       reading: "Inside its usual range, but it has climbed 113bp since February. Worth watching: a move above 0.75 says the market has stopped believing in more cuts." },
-    { name: "Sovereign spread", value: 8.82, unit: "pp", normalLo: 7, normalHi: 11, state: "normal",
+    { name: "Sovereign spread", value: 8.82, unit: "pp", normalLo: 7, normalHi: 11, state: "normal", basis: "judgement", n: 0,
       why: "Kenya 10-year less the US 10-year.",
       reading: "Mid-range. Foreign money is being paid fairly to stay in Kenyan paper, and the state is not paying a crisis premium." },
-    { name: "Real deposit rate", value: 0.35, unit: "pp", normalLo: -1, normalHi: 2, state: "normal",
+    { name: "Real deposit rate", value: 0.35, unit: "pp", normalLo: -1, normalHi: 2, state: "normal", basis: "judgement", n: 0,
       why: "Average deposit rate less headline inflation.",
       reading: "Barely positive. A bank deposit is just about keeping pace with inflation, and a savings account is not." },
-    { name: "Credit intensity", value: 1.92, unit: "x", normalLo: 1.2, normalHi: 2.5, state: "normal",
-      why: "Private credit growth divided by GDP growth.",
-      reading: "Healthy. Credit is growing faster than output, which is what a recovery looks like, without the excess that precedes a bad book." },
-    { name: "Market cap to GDP", value: 23.02, unit: "%", normalLo: 15, normalHi: 30, state: "normal",
+    { name: "Market cap to GDP", value: 23.02, unit: "%", normalLo: 15, normalHi: 30, state: "normal", basis: "judgement", n: 0,
       why: "NSE market capitalisation as a share of GDP.",
       reading: "Re-rating off the bottom. It reached 30% in 2013 and fell to 15% in 2023. There is room before this looks stretched." },
-    { name: "Overnight against policy", value: 0, unit: "pp", normalLo: -0.5, normalHi: 0.5, state: "normal",
+    { name: "Overnight against policy", value: 0, unit: "pp", normalLo: -0.5, normalHi: 0.5, state: "normal", basis: "judgement", n: 0,
       why: "KESONIA less the Central Bank Rate.",
       reading: "Exactly on policy. The money market is in balance — no stress, no flood." },
   ],
@@ -360,23 +503,12 @@ const SOURCES = [
    Maths
 =========================================================================== */
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
-const sd = a => { const m = mean(a); return Math.sqrt(mean(a.map(x => (x - m) ** 2))); };
 
-function zScore(v, hist) {
-  const past = hist.slice(0, -1);
-  if (past.length < 4) return null;
-  const s = sd(past);
-  return s === 0 ? null : (v - mean(past)) / s;
-}
 function slope(h) {
   const n = h.length; if (n < 3) return 0;
   const xs = h.map((_, i) => i), my = mean(h), mx = mean(xs);
   const den = xs.reduce((s, x) => s + (x - mx) ** 2, 0);
   return den === 0 ? 0 : xs.reduce((s, x, i) => s + (x - mx) * (h[i] - my), 0) / den;
-}
-function percentile(v, series) {
-  const c = series.filter(x => x !== null);
-  return c.length ? Math.round(100 * c.filter(x => x <= v).length / c.length) : null;
 }
 function stateOf(i) {
   if (i.band) { const [lo, hi] = i.band; if (i.value > hi || i.value < lo) return "stress"; }
@@ -385,14 +517,6 @@ function stateOf(i) {
   if (Math.abs(m) < 0.01) return "steady";
   return (m > 0) === (i.dir > 0) ? "good" : "stress";
 }
-/* 1st, 2nd, 3rd, 4th … 11th, 12th, 13th … 21st, 33rd. The teens are the
-   exception that catches naive implementations. */
-const ordinal = n => {
-  const t = n % 100;
-  if (t >= 11 && t <= 13) return `${n}th`;
-  return `${n}${["th", "st", "nd", "rd"][n % 10] || "th"}`;
-};
-
 const fmt = (v, unit, dp) => {
   if (v == null) return "—";
   const d = dp != null ? dp : Math.abs(v) >= 1000 ? 0 : Math.abs(v) >= 100 ? 2 : 2;
@@ -402,6 +526,25 @@ const fmt = (v, unit, dp) => {
 /* ===========================================================================
    Pieces
 =========================================================================== */
+/* Icons are drawn, not typed. An emoji renders differently on every platform
+   and carries no accessible name of its own. */
+const G = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none",
+  stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round",
+  strokeLinejoin: "round", "aria-hidden": "true" };
+
+const ThemeGlyph = ({ mode }) => mode === "light"
+  ? <svg {...G}><circle cx="12" cy="12" r="4.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" /></svg>
+  : mode === "dark"
+  ? <svg {...G}><path d="M20 14.5A8.2 8.2 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5Z" /></svg>
+  : <svg {...G}><circle cx="12" cy="12" r="8.2" /><path d="M12 3.8a8.2 8.2 0 0 1 0 16.4Z" fill="currentColor" stroke="none" /></svg>;
+
+const GearGlyph = () => (
+  <svg {...G}><circle cx="12" cy="12" r="3.1" />
+    <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" /></svg>
+);
+
+const CloseGlyph = () => <svg {...G}><path d="M18 6 6 18M6 6l12 12" /></svg>;
+
 function Mark({ size = 44 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
@@ -517,16 +660,10 @@ function Bars({ years, values, c, unit, narrow }) {
 }
 
 const Pill = ({ children, tone, c }) => (
-  <span style={{ fontSize: ".7em", fontWeight: 700, letterSpacing: ".05em",
+  <span style={{ fontSize: ".7em", fontWeight: 600, letterSpacing: ".05em",
     textTransform: "uppercase", whiteSpace: "nowrap", padding: "3px 9px", borderRadius: 20,
     color: { good: c.good, stress: c.bad, watch: c.warn, steady: c.dim }[tone] || c.dim,
     background: c.chip }}>{children}</span>
-);
-
-const Card = ({ children, c, style, i = 0, pad = 16 }) => (
-  <div style={{ background: c.card, border: `1px solid ${c.line}`, borderRadius: 16,
-    padding: pad, boxShadow: c.shadow, minWidth: 0, overflow: "hidden", animation: `kp-rise .38s ${i * 0.045}s both cubic-bezier(.22,.9,.3,1)`,
-    ...style }}>{children}</div>
 );
 
 /* ===========================================================================
@@ -534,31 +671,70 @@ const Card = ({ children, c, style, i = 0, pad = 16 }) => (
 =========================================================================== */
 export default function KenyaPulse() {
   const [cfg, setCfg] = useState(() => ({
-    theme: "system", size: "m", feed: "", autoSync: true, zAlert: 1.5,
-    pinned: ["inflation", "cbr", "credit", "debt_gdp"], showBands: true,
+    theme: "system", size: "m", autoSync: true,
+    pinned: ["inflation", "cbr", "tbill", "debt_gdp"], showBands: true,
     compact: false, taxBill: 15, taxMmf: 15, taxBond: 10,
+    notifyOn: false, notifyTime: "08:00", notifyDays: [1, 2, 3, 4, 5],
     ...store.get("kp.cfg", {}),
   }));
   const [data, setData] = useState(() => store.get("kp.data", SEED));
-  const [tab, setTab] = useState("pulse");
+  const [tab, setTab] = useState(() => readHash().tab || "pulse");
   const [openSettings, setOpenSettings] = useState(false);
-  const [trendKey, setTrendKey] = useState("gdp_growth");
-  const [expanded, setExpanded] = useState(null);
-  const [openBreak, setOpenBreak] = useState(null);
+  const [trendKey, setTrendKey] = useState(() => {
+    const h = readHash();
+    return h.tab === "trends" && h.id && ANNUAL[h.id] ? h.id : "gdp_growth";
+  });
+  const [expanded, setExpanded] = useState(() => {
+    const h = readHash();
+    return h.tab === "pulse" && h.id ? h.id : null;
+  });
+  const [openBreak, setOpenBreak] = useState(() => {
+    const h = readHash();
+    return h.tab === "edge" && h.id ? h.id : null;
+  });
   const [sync, setSync] = useState({ state: "idle", msg: "" });
-  const [restoreText, setRestoreText] = useState("");
-  const [restoreMsg, setRestoreMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef(null);
 
-  const [saved, setSaved] = useState(null);   // null unknown, true ok, false failed
   const saveTimer = useRef(null);
   useEffect(() => {
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => setSaved(store.set("kp.cfg", cfg)), 250);
+    saveTimer.current = setTimeout(() => store.set("kp.cfg", cfg), 250);
     return () => clearTimeout(saveTimer.current);
   }, [cfg]);
   useEffect(() => { store.probe(); }, []);
+  /* The scaffold's index.html may carry a stale title; the app states its own. */
+  useEffect(() => { try { document.title = "Kenya Pulse"; } catch { /* not fatal */ } }, []);
+
+  /* The clock is the device's, not the feed's. One ticker drives the header
+     and the notification check. */
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const [notePerm, setNotePerm] = useState(() =>
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+
+  useEffect(() => {
+    const id = tab === "trends" ? trendKey
+      : tab === "pulse" ? expanded
+      : tab === "edge" ? openBreak : null;
+    writeHash(tab, id);
+  }, [tab, trendKey, expanded, openBreak]);
+
+  useEffect(() => {
+    const onNav = () => {
+      const h = readHash();
+      if (h.tab) setTab(h.tab);
+      if (h.tab === "trends" && h.id && ANNUAL[h.id]) setTrendKey(h.id);
+      if (h.tab === "pulse") setExpanded(h.id || null);
+      if (h.tab === "edge") setOpenBreak(h.id || null);
+    };
+    window.addEventListener("hashchange", onNav);
+    return () => window.removeEventListener("hashchange", onNav);
+  }, []);
   useEffect(() => () => { clearTimeout(copyTimer.current); clearTimeout(saveTimer.current); }, []);
   const set = (k, v) => setCfg(p => ({ ...p, [k]: v }));
 
@@ -587,46 +763,29 @@ export default function KenyaPulse() {
   const base = SIZES[cfg.size] || 16;
 
   const pull = async (silent) => {
-    if (!cfg.feed) { setSync({ state: "err", msg: "No feed set — open settings." }); return; }
     setSync({ state: "busy", msg: "Fetching…" });
     try {
-      const r = await fetch(cfg.feed, { cache: "no-store" });
+      const r = await fetch(FEED, { cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       const merged = mergeFeed(SEED, j);
       setData(merged); store.set("kp.data", merged);
       setSync({ state: "ok", msg: `Synced ${j.asOf || "now"}` });
+      return merged;
     } catch (e) {
       setSync({ state: "err", msg: silent ? "" : `Could not reach the feed — ${e.message}` });
+      return null;
     }
   };
   useEffect(() => {
     store.set("kp.data", data);                       // seed the drawer on first run
-    if (cfg.autoSync && cfg.feed) pull(true);
+    if (cfg.autoSync) pull(true);
     /* eslint-disable-next-line */
   }, []);
 
-  /* Paste a backup back in. A backup you cannot restore is not a backup. */
-  const restore = () => {
-    try {
-      const p = JSON.parse(restoreText);
-      const nextCfg = p.cfg && typeof p.cfg === "object" ? { ...cfg, ...p.cfg } : null;
-      const nextData = p.data && Array.isArray(p.data.indicators) ? p.data : null;
-      if (!nextCfg && !nextData) throw new Error("nothing recognisable in there");
-      if (nextCfg) { setCfg(nextCfg); store.set("kp.cfg", nextCfg); }
-      if (nextData) { setData(nextData); store.set("kp.data", nextData); }
-      setRestoreText("");
-      setRestoreMsg(`Restored${nextCfg ? " settings" : ""}${nextCfg && nextData ? " and" : ""}${nextData ? " readings" : ""}.`);
-    } catch (e) {
-      setRestoreMsg(`Could not read that — ${e.message}`);
-    }
-  };
-
-  const inds = useMemo(() => data.indicators.map(i => {
-    const z = zScore(i.value, i.hist);
-    return { ...i, state: stateOf(i), z, trend: slope(i.hist.slice(-6)),
-      anomaly: z != null && Math.abs(z) >= cfg.zAlert, pct: percentile(i.value, i.hist) };
-  }), [data, cfg.zAlert]);
+  const inds = useMemo(() => data.indicators.map(i => (
+    { ...i, state: stateOf(i), trend: slope(i.hist.slice(-6)) }
+  )), [data]);
 
   /* the ladder recomputes live when tax assumptions change */
   const ladder = useMemo(() => {
@@ -643,16 +802,63 @@ export default function KenyaPulse() {
 
   const byId = Object.fromEntries(inds.map(i => [i.id, i]));
   const groups = [...new Set(inds.map(i => i.group))];
-  const scored = inds.filter(i => i.dir !== 0);
-  const pulse = Math.round(100 * scored.reduce((s, i) =>
-    s + (i.state === "good" ? 1 : i.state === "steady" ? .5 : 0), 0) / scored.length);
   const stressed = inds.filter(i => i.state === "stress");
-  const verdict = pulse >= 65 ? "EXPANDING" : pulse >= 45 ? "MIXED" : "UNDER STRAIN";
-  const vcol = pulse >= 65 ? c.good : pulse >= 45 ? c.warn : c.bad;
   const offRange = data.breaks.filter(b => b.state !== "normal");
 
-  const brief = useMemo(() => buildBrief(inds, ladder, data.breaks, data.call, data.asOf, pulse, verdict),
-    [inds, ladder, data, pulse, verdict]);
+  /* There is no composite score. One number that weights the currency the same
+     as debt service is not measuring anything, it only feels as though it is.
+     The headline is the most actionable fact instead: what the best available
+     return is once tax and inflation have taken their share. */
+  const best = ladder[0], worst = ladder[ladder.length - 1];
+  const spread = best && worst ? best.real - worst.real : 0;
+  const staleRungs = ladder.filter(r => r.stale);
+  const vcol = best && best.real > 0 ? c.good : c.bad;
+
+  const brief = useMemo(() => buildBrief(inds, ladder, data.breaks, data.asOf),
+    [inds, ladder, data]);
+  const briefRef = useRef(brief);
+  useEffect(() => { briefRef.current = brief; }, [brief]);
+
+  /* Daily notification. Client-only by design: real web push needs a
+     subscription server, and this app deliberately has none. So the check runs
+     on the device clock while the app is open, and catches up on the next open
+     after the chosen time. One notification per day, at most. */
+  const enableNotify = async (v) => {
+    if (!v) { set("notifyOn", false); return; }
+    if (typeof Notification === "undefined") return;
+    let p = Notification.permission;
+    if (p === "default") {
+      try { p = await Notification.requestPermission(); } catch { p = "denied"; }
+    }
+    setNotePerm(p);
+    set("notifyOn", p === "granted");
+  };
+
+  useEffect(() => {
+    if (!cfg.notifyOn) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const dayOk = (cfg.notifyDays || []).includes(now.getDay());
+    const [h, m] = (cfg.notifyTime || "08:00").split(":").map(Number);
+    const due = now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
+    const key = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    if (!dayOk || !due || store.get("kp.notified", "") === key) return;
+    store.set("kp.notified", key);            // claim the day before the async work
+    (async () => {
+      await pull(true);                       // refresh first, notify on fresh figures
+      await new Promise(r => setTimeout(r, 400));
+      const body = briefRef.current.split("\n").slice(1, 3).join("\n");
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration?.();
+        if (reg?.showNotification) {
+          reg.showNotification("Kenya Pulse", { body, icon: "/icon-192.png", tag: "kp-daily" });
+          return;
+        }
+      } catch { /* fall through to the plain API */ }
+      try { new Notification("Kenya Pulse", { body, icon: "/icon-192.png", tag: "kp-daily" }); }
+      catch { /* the browser said yes to permission but no to the call */ }
+    })();
+    /* eslint-disable-next-line */
+  }, [now, cfg.notifyOn, cfg.notifyTime, cfg.notifyDays]);
 
   const copy = async (t) => {
     try { await navigator.clipboard.writeText(t); }
@@ -666,21 +872,36 @@ export default function KenyaPulse() {
     copyTimer.current = setTimeout(() => setCopied(false), 1600);
   };
 
+  /* The device's own share sheet where the browser offers one; the clipboard
+     where it does not, so desktop browsers still get a working button. */
+  const share = async (title, url) => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try { await navigator.share({ title, url }); return; }
+      catch (e) { if (e && e.name === "AbortError") return; }
+    }
+    copy(url);
+  };
+
   const S = {
     page: { minHeight: "100vh", background: c.bg, color: c.ink, fontSize: base,
-      fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
-      lineHeight: 1.5, fontVariantNumeric: "tabular-nums",
-      transition: "background .25s ease, color .25s ease" },
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', " +
+        "'Inter', 'Segoe UI', system-ui, sans-serif",
+      lineHeight: 1.47, fontVariantNumeric: "tabular-nums",
+      letterSpacing: "-.011em",
+      WebkitFontSmoothing: "antialiased",
+      transition: "background .3s ease, color .3s ease" },
     wrap: { maxWidth: 720, margin: "0 auto",
       padding: narrow ? "10px 10px 40px" : "12px 14px 44px" },
-    eyebrow: { fontSize: ".72em", fontWeight: 700, letterSpacing: ".1em",
+    eyebrow: { fontSize: ".72em", fontWeight: 600, letterSpacing: ".1em",
       textTransform: "uppercase", color: c.dim },
-    icon: { width: 40, height: 40, borderRadius: 11, border: `1px solid ${c.line}`,
-      background: c.card, color: c.ink, cursor: "pointer", fontSize: 15,
-      display: "grid", placeItems: "center", transition: "transform .12s, border-color .15s" },
-    btn: (bg, fg) => ({ padding: "11px 18px", borderRadius: 11, border: "none",
-      background: bg, color: fg, fontWeight: 700, cursor: "pointer",
-      transition: "transform .12s, background .18s" }),
+    icon: { width: 44, height: 44, borderRadius: 44, border: "none",
+      background: c.chip, color: c.dim, cursor: "pointer", fontSize: "14px",
+      display: "grid", placeItems: "center", flexShrink: 0,
+      transition: "transform .16s cubic-bezier(.32,.72,0,1), background .2s" },
+    btn: (bg, fg) => ({ padding: "10px 18px", borderRadius: 10, border: "none",
+      background: bg, color: fg, fontWeight: 600, cursor: "pointer", fontSize: ".92em",
+      letterSpacing: "-.01em",
+      transition: "transform .18s cubic-bezier(.32,.72,0,1), background .2s" }),
   };
 
   const TABS = [["pulse", "Pulse"], ["edge", "Edge"], ["trends", "Trends"],
@@ -694,21 +915,26 @@ export default function KenyaPulse() {
         input,select{font-family:inherit}
         ::-webkit-scrollbar{width:6px;height:6px}
         ::-webkit-scrollbar-thumb{background:${c.line};border-radius:3px}
-        @keyframes kp-rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+        @keyframes kp-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
         @keyframes kp-fade{from{opacity:0}to{opacity:1}}
         @keyframes kp-sheet{from{transform:translateY(100%)}to{transform:none}}
         @keyframes kp-veil{from{opacity:0}to{opacity:1}}
         @keyframes kp-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
         @keyframes kp-grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-        .kp-tap{transition:transform .12s cubic-bezier(.3,.8,.4,1)}
+        /* Apple's standard easing. Motion decelerates rather than coasting,
+           which is most of why native transitions feel settled. */
+        .kp-tap{transition:transform .18s cubic-bezier(.32,.72,0,1)}
         /* Nothing may push the page sideways. A dashboard that scrolls
            horizontally on a phone is a dashboard you stop opening. */
         html,body{overflow-x:hidden;-webkit-text-size-adjust:100%}
         table{max-width:100%}
         pre{word-break:break-word}
-        .kp-tap:active{transform:scale(.97)}
+        .kp-tap:active{transform:scale(.96);opacity:.7}
         .kp-f:focus-visible{outline:2px solid ${c.cool};outline-offset:2px;border-radius:8px}
-        .kp-bar{transform-origin:left;animation:kp-grow .55s cubic-bezier(.22,.9,.3,1) both}
+        .kp-bar{transform-origin:left;animation:kp-grow .6s cubic-bezier(.32,.72,0,1) both}
+        @media (prefers-reduced-transparency:reduce){
+          .kp-veil{background:rgba(0,0,0,.85)!important}
+        }
         @media (prefers-reduced-motion:reduce){
           *,*::before,*::after{animation:none!important;transition:none!important}
         }
@@ -716,75 +942,109 @@ export default function KenyaPulse() {
 
       <div style={S.wrap}>
         {/* ---------------- header ---------------- */}
-        <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-          <Mark />
+        <header style={{ display: "flex", alignItems: "flex-start", gap: 12,
+          margin: "6px 0 18px", padding: "0 2px" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "1.35em", fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.1 }}>
-              Kenya <span style={{ color: c.good }}>Pulse</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 2 }}>
+              <Mark size={26} />
+              <span style={{ fontSize: ".8em", fontWeight: 600, color: c.dim,
+                letterSpacing: ".01em" }}>Kenya Pulse</span>
             </div>
-            <div style={{ fontSize: narrow ? ".76em" : ".82em", color: c.dim }}>
-              {narrow ? data.asOf : `Where the economy is, and where money is paid · ${data.asOf}`}
+            <div style={{ fontSize: narrow ? "1.9em" : "2.1em", fontWeight: 600,
+              letterSpacing: "-.028em", lineHeight: 1.08 }}>
+              {now.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}
+            </div>
+            <div style={{ fontSize: ".78em", color: c.faint, marginTop: 3 }}>
+              {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+              {" · readings to "}
+              {new Date(data.asOf + "T00:00:00").toLocaleDateString("en-GB",
+                { day: "numeric", month: "short" })}
             </div>
           </div>
-          <button className="kp-f kp-tap" style={S.icon} aria-label="Theme"
-            onClick={() => set("theme", cfg.theme === "light" ? "dark" : cfg.theme === "dark" ? "system" : "light")}>
-            {cfg.theme === "light" ? "☀" : cfg.theme === "dark" ? "☾" : "◐"}
-          </button>
-          <button className="kp-f kp-tap" style={S.icon} aria-label="Settings"
-            onClick={() => setOpenSettings(true)}>⚙</button>
+          <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+            <button className="kp-f kp-tap" style={S.icon} aria-label="Theme"
+              onClick={() => set("theme", cfg.theme === "light" ? "dark"
+                : cfg.theme === "dark" ? "system" : "light")}>
+              <ThemeGlyph mode={cfg.theme} />
+            </button>
+            <button className="kp-f kp-tap" style={S.icon} aria-label="Settings"
+              onClick={() => setOpenSettings(true)}><GearGlyph /></button>
+          </div>
         </header>
 
         {/* ---------------- hero ---------------- */}
-        <Card c={c} pad={narrow ? 13 : 16} style={{ border: `1.5px solid ${vcol}`, marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 9, background: vcol }} />
-            <span style={{ ...S.eyebrow, color: vcol }}>Pulse score · {verdict}</span>
+        <div style={{ marginBottom: 18, minWidth: 0,
+          animation: "kp-rise .42s both cubic-bezier(.32,.72,0,1)" }}>
+          <div style={{ fontSize: ".76em", fontWeight: 600, letterSpacing: ".02em",
+            color: c.dim, padding: "0 16px 7px", textTransform: "uppercase" }}>
+            Best real return
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ fontSize: "2.9em", fontWeight: 800, color: vcol,
-              letterSpacing: "-.04em", lineHeight: 1 }}>{pulse}</div>
-            <div style={{ fontSize: ".92em", color: c.dim }}>
-              of 100 · {scored.length - stressed.length} of {scored.length} lines holding
+          <div style={{ background: c.card, borderRadius: 18, padding: narrow ? 16 : 18,
+            boxShadow: c.shadow }}>
+            {best ? (
+              <>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10,
+                  flexWrap: "wrap" }}>
+                  <span style={{ fontSize: narrow ? "2.6em" : "3em", fontWeight: 600,
+                    color: vcol, letterSpacing: "-.045em", lineHeight: 1 }}>
+                    {best.real > 0 ? "+" : ""}{best.real.toFixed(2)}%
+                  </span>
+                  <span style={{ fontSize: ".95em", fontWeight: 500 }}>{best.label}</span>
+                </div>
+                <div style={{ fontSize: ".88em", color: c.dim, marginTop: 9, lineHeight: 1.5 }}>
+                  After tax and inflation. Cash loses {Math.abs(worst.real).toFixed(2)}% —
+                  a gap of <strong style={{ color: c.ink, fontWeight: 600 }}>
+                  KES {Math.round(spread * 10000).toLocaleString("en-GB")}</strong> a year
+                  on a million.
+                </div>
+              </>
+            ) : <div style={{ color: c.dim }}>Waiting on rates.</div>}
+
+            {staleRungs.length > 0 && (
+              <div style={{ marginTop: 10, fontSize: ".82em", color: c.warn }}>
+                {staleRungs.length} rate{staleRungs.length > 1 ? "s" : ""} overdue a refresh
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 2.5, marginTop: 18, height: 14,
+              alignItems: "center" }}>
+              {inds.map((i, n) => (
+                <button key={i.id} title={`${i.label} — ${i.state}`} className="kp-f"
+                  onClick={() => { setTab("pulse"); setExpanded(i.id); }}
+                  style={{ flex: 1, border: "none", padding: 0, cursor: "pointer",
+                    borderRadius: 3,
+                    height: i.state === "stress" ? 14 : i.state === "good" ? 9 : 4,
+                    background: i.state === "stress" ? c.bad
+                      : i.state === "good" ? c.good : c.line,
+                    opacity: i.state === "steady" ? 1 : .82,
+                    animation: `kp-rise .45s ${n * 0.012}s both cubic-bezier(.32,.72,0,1)` }} />
+              ))}
+            </div>
+            <div style={{ fontSize: ".82em", color: c.faint, marginTop: 10, lineHeight: 1.45 }}>
+              {stressed.length
+                ? <>{stressed.length} under pressure
+                  {offRange.length > 0 && `, ${offRange.length} off range`}</>
+                : "Nothing under pressure."}
             </div>
           </div>
-
-          <div style={{ display: "flex", gap: 3, margin: "14px 0 8px", height: 26, alignItems: "flex-end" }}>
-            {inds.map((i, n) => (
-              <button key={i.id} title={`${i.label} — ${i.state}`} className="kp-f"
-                onClick={() => { setTab("pulse"); setExpanded(i.id); }}
-                style={{ flex: 1, border: "none", padding: 0, cursor: "pointer", borderRadius: 2,
-                  height: i.state === "stress" ? 26 : i.state === "good" ? 18 : 11,
-                  background: i.state === "stress" ? c.bad : i.state === "good" ? c.good : c.line,
-                  opacity: i.anomaly ? 1 : .84,
-                  animation: `kp-rise .4s ${n * 0.012}s both`, transition: "height .2s" }} />
-            ))}
-          </div>
-          <div style={{ fontSize: ".78em", color: c.faint, marginBottom: 10 }}>
-            One bar per indicator. Tall red is under pressure, mid green is improving.
-          </div>
-          <div style={{ fontSize: ".9em", color: c.dim, borderTop: `1px solid ${c.line}`, paddingTop: 10 }}>
-            {stressed.length
-              ? <>Under pressure: <strong style={{ color: c.ink }}>
-                {stressed.slice(0, 3).map(s => s.label.toLowerCase()).join(", ")}</strong>
-                {stressed.length > 3 && ` and ${stressed.length - 3} more`}. </>
-              : "Nothing is flashing red. "}
-            {offRange.length > 0 && <>{offRange.length} relationship{offRange.length > 1 ? "s are" : " is"} outside its usual range.</>}
-          </div>
-        </Card>
+        </div>
 
         {/* ---------------- tabs ---------------- */}
-        <div style={{ display: "flex", background: c.chip, borderRadius: 13, padding: 4, marginBottom: 14 }}>
+        <div role="tablist" style={{ display: "flex", background: c.seg, borderRadius: 10,
+          padding: 2, marginBottom: 18 }}>
           {TABS.map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} className="kp-f kp-tap"
-              aria-current={tab === k ? "page" : undefined}
-              style={{ flex: 1, minWidth: 0, padding: narrow ? "9px 1px" : "9px 2px",
-                border: "none", borderRadius: 10, cursor: "pointer",
-                background: tab === k ? c.card : "transparent",
-                fontSize: "clamp(11px, 3.3vw, 15px)",
-                letterSpacing: tiny ? "-.02em" : "normal",
-                color: tab === k ? c.ink : c.dim, fontWeight: tab === k ? 700 : 500,
-                boxShadow: tab === k ? c.shadow : "none", whiteSpace: "nowrap",
-                transition: "background .2s, color .2s, box-shadow .2s" }}>{l}</button>
+              role="tab" aria-selected={tab === k}
+              style={{ flex: 1, minWidth: 0, padding: "7px 2px",
+                border: "none", borderRadius: 8, cursor: "pointer",
+                background: tab === k ? c.segOn : "transparent",
+                fontSize: "clamp(11px, 3.2vw, 14px)",
+                letterSpacing: tiny ? "-.02em" : "-.01em",
+                color: tab === k ? c.ink : c.dim, fontWeight: 600,
+                boxShadow: tab === k ? c.segShadow : "none", whiteSpace: "nowrap",
+                transition: "background .22s cubic-bezier(.32,.72,0,1), color .2s, box-shadow .22s" }}>
+              {l}
+            </button>
           ))}
         </div>
 
@@ -792,102 +1052,134 @@ export default function KenyaPulse() {
             which lets a horizontally scrolling child push the whole column
             wider than the screen. That is what clipped the Trends chart. */}
         <div key={tab} style={{ display: "grid", gap: 14, minWidth: 0,
-          animation: "kp-fade .3s ease both" }}>
+          animation: "kp-fade .32s cubic-bezier(.32,.72,0,1) both" }}>
 
           {/* ================= PULSE ================= */}
           {tab === "pulse" && <>
             {cfg.pinned.length > 0 && (
-              <Card c={c} pad={narrow ? 13 : 16} i={0}>
-                <div style={{ ...S.eyebrow, marginBottom: 10 }}>Pinned</div>
+              <Section title="Pinned" c={c} i={0} pad={narrow ? 16 : 18}>
                 <div style={{ display: "grid",
                   gridTemplateColumns: tiny ? "1fr" : "1fr 1fr", gap: narrow ? 12 : 14 }}>
                   {cfg.pinned.map(id => byId[id]).filter(Boolean).map(i => (
-                    <div key={i.id}>
-                      <div style={{ fontSize: ".76em", color: c.dim, marginBottom: 2 }}>{i.label}</div>
-                      <div style={{ fontSize: "1.5em", fontWeight: 700,
-                        color: i.state === "stress" ? c.bad : i.state === "good" ? c.good : c.ink }}>
+                    <div key={i.id} style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: ".78em", color: c.dim, marginBottom: 3,
+                        overflow: "hidden", textOverflow: "ellipsis",
+                        whiteSpace: "nowrap" }}>{i.label}</div>
+                      {/* The figure stays neutral. Colour belongs on the change, not
+                          the level — a rate easing slightly is not bad news. */}
+                      <div style={{ fontSize: "1.55em", fontWeight: 600, color: c.ink,
+                        letterSpacing: "-.03em", lineHeight: 1.15 }}>
                         {fmt(i.value, i.unit)}
                       </div>
-                      <div style={{ fontSize: ".74em", color: c.faint }}>
-                        {i.prior != null && `${i.value > i.prior ? "▲" : i.value < i.prior ? "▼" : "="} ${fmt(Math.abs(i.value - i.prior), i.unit)} vs ${i.priorLabel}`}
-                      </div>
+                      {i.prior != null && (
+                        <div style={{ fontSize: ".76em", marginTop: 1,
+                          color: i.state === "stress" ? c.bad
+                            : i.state === "good" ? c.good : c.faint }}>
+                          {i.value > i.prior ? "↑" : i.value < i.prior ? "↓" : "–"}
+                          {" "}{fmt(Math.abs(i.value - i.prior), i.unit)}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
-              </Card>
+              </Section>
             )}
 
             {groups.map((g, gi) => (
-              <Card c={c} pad={narrow ? 13 : 16} key={g} i={gi + 1}>
-                <div style={{ ...S.eyebrow, marginBottom: 10 }}>{g}</div>
+              <Section title={g} c={c} key={g} i={gi + 1} pad={0}>
                 {inds.filter(i => i.group === g).map((i, n, arr) => {
                   const open = expanded === i.id;
-                  const col = i.state === "stress" ? c.bad : i.state === "good" ? c.good : c.dim;
+                  const col = i.state === "stress" ? c.bad : i.state === "good" ? c.good : c.faint;
                   return (
-                    <div key={i.id} style={{ borderBottom: n < arr.length - 1 ? `1px solid ${c.line}` : "none" }}>
+                    <div key={i.id}>
                       <button onClick={() => setExpanded(open ? null : i.id)} className="kp-f"
                         aria-expanded={open}
-                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 10,
-                          padding: cfg.compact ? "9px 0" : "13px 0", background: "none",
-                          border: "none", cursor: "pointer", textAlign: "left" }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 7, background: col, flexShrink: 0 }} />
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 11,
+                          padding: cfg.compact ? "10px 16px" : "13px 16px", background: "none",
+                          border: "none", cursor: "pointer", textAlign: "left", minHeight: 44 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 8, background: col,
+                          flexShrink: 0 }} />
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: "block", fontWeight: 600, fontSize: ".94em",
-                            lineHeight: 1.25,
+                          <span style={{ display: "block", fontWeight: 500, fontSize: ".95em",
+                            lineHeight: 1.3, letterSpacing: "-.012em",
                             ...(narrow ? {} : { overflow: "hidden", textOverflow: "ellipsis",
                               whiteSpace: "nowrap" }) }}>{i.label}</span>
-                          <span style={{ fontSize: ".74em", color: c.faint }}>
-                            {i.asOf} · {i.src}{i.anomaly ? " · off trend" : ""}
+                          <span style={{ fontSize: ".76em", color: c.faint }}>
+                            {i.asOf}
                           </span>
                         </span>
                         {!cfg.compact && !tiny &&
-                          <Spark data={i.hist} colour={col} w={narrow ? 52 : 88} h={narrow ? 26 : 30} />}
+                          <Spark data={i.hist} colour={col} w={narrow ? 46 : 76} h={narrow ? 24 : 28} />}
                         <span style={{ textAlign: "right", flexShrink: 0 }}>
-                          <span style={{ display: "block", fontWeight: 700, fontSize: "1.02em" }}>
-                            {fmt(i.value, i.unit)}
-                          </span>
+                          <span style={{ display: "block", fontWeight: 600, fontSize: "1em",
+                            letterSpacing: "-.015em" }}>{fmt(i.value, i.unit)}</span>
                           {i.prior != null && (
-                            <span style={{ fontSize: ".74em", color: col }}>
+                            <span style={{ fontSize: ".76em", color: col }}>
                               {i.value > i.prior ? "+" : ""}{fmt(i.value - i.prior, "")}
                             </span>
                           )}
                         </span>
+                        <span aria-hidden="true" style={{ color: c.faint, fontSize: ".9em",
+                          flexShrink: 0, transform: open ? "rotate(90deg)" : "none",
+                          transition: "transform .25s cubic-bezier(.32,.72,0,1)" }}>›</span>
                       </button>
+
                       {open && (
-                        <div style={{ padding: "0 0 14px 17px", fontSize: ".88em", color: c.dim,
-                          animation: "kp-rise .25s both" }}>
-                          <div style={{ marginBottom: 10, color: c.ink }}>{i.note}</div>
-                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: ".92em" }}>
-                            <span><strong style={{ color: c.ink }}>{i.freq}</strong></span>
-                            {i.z != null && <span>z <strong style={{ color: i.anomaly ? c.warn : c.ink }}>{i.z.toFixed(2)}</strong></span>}
-                            {i.pct != null && <span>{i.pct}th percentile</span>}
-                            <span>{i.trend > .02 ? "rising" : i.trend < -.02 ? "falling" : "flat"}</span>
+                        <div style={{ padding: "2px 16px 16px 35px", fontSize: ".88em",
+                          color: c.dim, animation: "kp-rise .28s both cubic-bezier(.32,.72,0,1)" }}>
+                          {i.what && (
+                            <div style={{ marginBottom: 12, padding: "12px 14px",
+                              background: c.chip, borderRadius: 12 }}>
+                              <div style={{ color: c.ink, marginBottom: 8 }}>{i.what}</div>
+                              <div style={{ color: c.dim }}>{i.why}</div>
+                            </div>
+                          )}
+                          <div style={{ marginBottom: 12, color: c.ink }}>{i.note}</div>
+                          <div style={{ display: "flex", gap: 14, flexWrap: "wrap",
+                            fontSize: ".9em", color: c.faint }}>
+                            <span>{i.src}</span>
                           </div>
                           {i.band && cfg.showBands && (
                             <div style={{ marginTop: 8, color: c.warn }}>{i.bandLabel}</div>
                           )}
+                          <button onClick={() => share(i.label, linkTo("pulse", i.id))}
+                            className="kp-f kp-tap"
+                            style={{ marginTop: 14, padding: 0, border: "none",
+                              background: "none", color: c.cool, cursor: "pointer",
+                              fontSize: ".88em", fontWeight: 600 }}>
+                            {copied ? "Link copied" : "Share"}
+                          </button>
                         </div>
+                      )}
+
+                      {n < arr.length - 1 && (
+                        <div style={{ height: 1, background: c.line, marginLeft: 35 }} />
                       )}
                     </div>
                   );
                 })}
-              </Card>
+              </Section>
             ))}
           </>}
 
           {/* ================= EDGE ================= */}
           {tab === "edge" && <>
-            <Card c={c} pad={narrow ? 13 : 16} i={0} style={{ borderLeft: `3px solid ${c.good}` }}>
-              <div style={{ ...S.eyebrow, marginBottom: 9 }}>The read</div>
-              <div style={{ fontSize: ".97em", lineHeight: 1.62 }}>{data.call}</div>
-            </Card>
+            <Section title="Briefing" c={c} i={0} pad={narrow ? 16 : 18}>
+              <div style={{ fontSize: ".92em", lineHeight: 1.52, color: c.ink }}>{data.call}</div>
+              <pre style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+                fontSize: ".76em", lineHeight: 1.6, whiteSpace: "pre-wrap",
+                margin: "14px 0 0", color: c.dim }}>{brief}</pre>
+              <button onClick={() => copy(`${data.call}\n\n${brief}`)} className="kp-f kp-tap"
+                style={{ ...S.btn(copied ? c.good : c.cool, "#fff"), marginTop: 14 }}>
+                {copied ? "Copied" : "Copy briefing"}
+              </button>
+            </Section>
 
             {/* LADDER */}
-            <Card c={c} pad={narrow ? 13 : 16} i={1}>
-              <div style={{ ...S.eyebrow, marginBottom: 4 }}>1 · What is being paid</div>
+            <Section title="What is being paid" c={c} i={1} pad={narrow ? 16 : 18}
+              note="OLD marks a rate past its usual publication cycle — check it before acting. Arithmetic on published rates, not advice. Tax rates are editable in settings.">
               <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 16 }}>
-                After Kenyan withholding tax, less inflation. Nominal yield is the energy,
-                inflation is the entropy. What survives is the bar.
+                After withholding tax, less inflation.
               </div>
               {(() => {
                 const span = Math.max(...ladder.map(r => Math.abs(r.real))) || 1;
@@ -899,10 +1191,15 @@ export default function KenyaPulse() {
                       borderBottom: n < ladder.length - 1 ? `1px solid ${c.line}` : "none" }}>
                       <div style={{ display: "flex", justifyContent: "space-between",
                         alignItems: "baseline", gap: 8, marginBottom: 5 }}>
-                        <span style={{ fontWeight: n === 0 ? 700 : 500, fontSize: ".92em" }}>
+                        <span style={{ fontWeight: n === 0 ? 600 : 400, fontSize: ".92em",
+                          display: "flex", alignItems: "center", gap: 6 }}>
                           {r.label}
+                          {r.stale && <span title="This rate needs refreshing"
+                            style={{ fontSize: ".7em", fontWeight: 600, color: c.warn,
+                              border: `1px solid ${c.warn}`, borderRadius: 4,
+                              padding: "0 4px", opacity: .9 }}>OLD</span>}
                         </span>
-                        <span style={{ fontWeight: 700, color: pos ? c.good : c.bad,
+                        <span style={{ fontWeight: 600, color: pos ? c.good : c.bad,
                           fontSize: ".96em", whiteSpace: "nowrap" }}>
                           {r.real > 0 ? "+" : ""}{r.real.toFixed(2)}%
                         </span>
@@ -916,36 +1213,32 @@ export default function KenyaPulse() {
                           background: pos ? c.good : c.bad, borderRadius: 4,
                           animationDelay: `${n * 0.04}s` }} />
                       </div>
-                      <div style={{ fontSize: ".73em", color: c.faint }}>
+                      <div style={{ fontSize: ".73em", color: r.stale ? c.warn : c.faint }}>
                         {r.gross.toFixed(2)}% gross · {r.note} · {r.net.toFixed(2)}% net
                         {r.doublingYears && ` · doubles in ${r.doublingYears}y`}
+                        {r.stale && (r.ageDays != null
+                          ? ` · rate is ${r.ageDays} days old`
+                          : " · rate has no date")}
                       </div>
                     </div>
                   );
                 });
               })()}
-              <div style={{ marginTop: 14, padding: "11px 13px", background: c.chip,
-                borderRadius: 11, fontSize: ".85em" }}>
-                <strong>The cost of doing nothing.</strong> The gap between the top of this
-                ladder and cash is{" "}
-                <strong style={{ color: c.warn }}>
-                  {(ladder[0].real - ladder[ladder.length - 1].real).toFixed(2)} points
-                </strong>
-                {" "}a year. On a million shillings that is about{" "}
-                <strong>KES {Math.round((ladder[0].real - ladder[ladder.length - 1].real) * 10000).toLocaleString("en-GB")}</strong>
-                {" "}of purchasing power, annually.
+              <div style={{ marginTop: 16, padding: "12px 14px", background: c.chip,
+                borderRadius: 12, fontSize: ".86em" }}>
+                Top to bottom is <strong style={{ color: c.warn, fontWeight: 600 }}>
+                {(ladder[0].real - ladder[ladder.length - 1].real).toFixed(2)} points</strong> a
+                year — about <strong style={{ fontWeight: 600 }}>KES {Math.round((ladder[0].real -
+                ladder[ladder.length - 1].real) * 10000).toLocaleString("en-GB")}</strong> on a
+                million. That is the price of standing still.
               </div>
-              <div style={{ marginTop: 10, fontSize: ".78em", color: c.faint }}>
-                Arithmetic on published rates, not advice. Tax assumptions are editable in settings.
-              </div>
-            </Card>
+            </Section>
 
             {/* CHAIN */}
-            <Card c={c} pad={narrow ? 13 : 16} i={2}>
-              <div style={{ ...S.eyebrow, marginBottom: 4 }}>2 · What is already coming</div>
+            <Section title="What is already coming" c={c} i={2} pad={narrow ? 16 : 18}
+              note="A link that has not moved while the one before it has is the part nobody has priced.">
               <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 18 }}>
-                Policy moves reach the economy along a chain, each link lagging the one before.
-                A link that has not moved yet is the part nobody has priced.
+                Policy reaches the economy along a chain, each link lagging the last.
               </div>
               {data.chain.map((s, n) => {
                 const last = n === data.chain.length - 1;
@@ -962,7 +1255,7 @@ export default function KenyaPulse() {
                       <div style={{ display: "flex", justifyContent: "space-between",
                         alignItems: "baseline", gap: 8 }}>
                         <span style={{ fontWeight: 600, fontSize: ".93em" }}>{s.label}</span>
-                        <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{s.value}</span>
+                        <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{s.value}</span>
                       </div>
                       <div style={{ fontSize: ".78em", color: c.faint, marginTop: 2 }}>
                         {s.lagMonths === 0 ? "immediate" : `about ${s.lagMonths} months behind policy`}
@@ -977,14 +1270,14 @@ export default function KenyaPulse() {
                   </div>
                 );
               })}
-            </Card>
+            </Section>
 
             {/* BREAKS */}
-            <Card c={c} pad={narrow ? 13 : 16} i={3}>
-              <div style={{ ...S.eyebrow, marginBottom: 4 }}>3 · What is mispriced</div>
+            <Section title="What is mispriced" c={c} i={3} pad={narrow ? 16 : 18}
+              note="A measured range is computed from readings this app has logged. A judged one is read off published history until enough readings exist.">
               <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 16 }}>
-                Relationships that normally hold. One inside its range tells you nothing.
-                One outside it is a mispricing or a regime change, and both are worth knowing early.
+                Relationships that normally hold. One outside its range is either a mispricing
+                or a regime change.
               </div>
               {data.breaks.map((b, n) => {
                 const open = openBreak === b.name;
@@ -1012,28 +1305,42 @@ export default function KenyaPulse() {
                         borderRadius: 4, marginBottom: 5 }}>
                         <div style={{ position: "absolute", left: "0%", right: "0%", top: 0,
                           bottom: 0, background: c.line, borderRadius: 4, opacity: .8 }} />
-                        <div style={{ position: "absolute", top: -4, left: `calc(${pos}% - 3px)`,
-                          width: 6, height: 14, borderRadius: 3,
-                          background: off ? c.warn : c.good,
-                          transition: "left .5s cubic-bezier(.22,.9,.3,1)" }} />
+                        {/* Position is data, not motion. It moves once a fortnight
+                            when the feed updates; animating it is decoration. */}
+                        <div style={{ position: "absolute", top: -4,
+                          left: `calc(${pos}% - 3px)`, width: 6, height: 14,
+                          borderRadius: 3, background: off ? c.warn : c.good }} />
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between",
                         fontSize: ".71em", color: c.faint }}>
                         <span>{b.normalLo}{b.unit}</span>
-                        <span>usual range</span>
+                        <span>{b.basis === "derived" ? "measured range" : "judged range"}</span>
                         <span>{b.normalHi}{b.unit}</span>
                       </div>
                     </button>
                     {open && (
                       <div style={{ marginTop: 11, fontSize: ".87em", animation: "kp-rise .25s both" }}>
                         <div style={{ color: c.ink, marginBottom: 6 }}>{b.reading}</div>
-                        <div style={{ color: c.faint, fontSize: ".92em" }}>{b.why}</div>
+                        <div style={{ color: c.faint, fontSize: ".92em", marginBottom: 8 }}>{b.why}</div>
+                        <div style={{ color: b.basis === "derived" ? c.faint : c.warn,
+                          fontSize: ".86em" }}>
+                          {b.basisNote || (b.basis === "derived"
+                            ? "Range computed from logged readings."
+                            : "Range read off published history rather than measured — treat it as a judgement.")}
+                        </div>
+                        <button onClick={() => share(b.name, linkTo("edge", b.name))}
+                          className="kp-f kp-tap"
+                          style={{ marginTop: 12, padding: 0, border: "none",
+                            background: "none", color: c.cool, cursor: "pointer",
+                            fontSize: ".88em", fontWeight: 600 }}>
+                          {copied ? "Link copied" : "Share"}
+                        </button>
                       </div>
                     )}
                   </div>
                 );
               })}
-            </Card>
+            </Section>
           </>}
 
           {/* ================= TRENDS ================= */}
@@ -1048,7 +1355,6 @@ export default function KenyaPulse() {
               .filter(i => i >= 0).pop();
             const latest = vals[lastIdx], latestYear = YEARS[lastIdx];
             const avg = mean(cl);
-            const pct = percentile(latest, vals);
 
             /* Decades keyed on the YEAR, not on a position in the filtered
                array. Slicing the filtered array silently shifts every decade
@@ -1065,10 +1371,8 @@ export default function KenyaPulse() {
             const u = meta.unit === "%" ? "%" : "";
 
             return <>
-              <Card c={c} pad={narrow ? 13 : 16} i={0}>
-                <div style={{ ...S.eyebrow, marginBottom: 10 }}>
-                  Twenty-four years · 2002 to 2025
-                </div>
+              <Section title="Twenty-four years · 2002 to 2025" c={c} i={0} pad={narrow ? 16 : 18}
+                note="World Bank national accounts. A flat grey mark is a year not yet published.">
 
                 <div style={{ position: "relative", marginBottom: 14, minWidth: 0 }}>
                   <div style={{ display: "flex", gap: 6, overflowX: "auto",
@@ -1096,7 +1400,7 @@ export default function KenyaPulse() {
 
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8,
                   marginBottom: 14, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: narrow ? "1.7em" : "2em", fontWeight: 800,
+                  <span style={{ fontSize: narrow ? "1.7em" : "2em", fontWeight: 600,
                     letterSpacing: "-.03em" }}>{fmt(latest, u)}</span>
                   <span style={{ fontSize: ".82em", color: c.dim }}>
                     {meta.unit !== "%" && meta.unit + " · "}{latestYear}
@@ -1105,29 +1409,22 @@ export default function KenyaPulse() {
                 </div>
 
                 <Bars years={YEARS} values={vals} c={c} unit={u} narrow={narrow} />
-              </Card>
+                <button onClick={() => share(meta.label, linkTo("trends", trendKey))}
+                  className="kp-f kp-tap"
+                  style={{ marginTop: 14, padding: 0, border: "none", background: "none",
+                    color: c.cool, cursor: "pointer", fontSize: ".88em", fontWeight: 600 }}>
+                  {copied ? "Link copied" : "Share"}
+                </button>
+              </Section>
 
-              <Card c={c} pad={narrow ? 13 : 16} i={1}>
-                <div style={{ ...S.eyebrow, marginBottom: 12 }}>Where this sits</div>
-                <div style={{ display: "grid",
-                  gridTemplateColumns: tiny ? "1fr" : "1fr 1fr", gap: 16 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: ".76em", color: c.dim }}>
-                      Percentile of its own history
-                    </div>
-                    <div style={{ fontSize: "1.55em", fontWeight: 700,
-                      color: pct > 70 ? c.good : pct < 30 ? c.bad : c.ink }}>
-                      {ordinal(pct)}
-                    </div>
+              <Section title="Where this sits" c={c} i={1} pad={narrow ? 16 : 18}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: ".76em", color: c.dim }}>
+                    Against the 24-year mean
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: ".76em", color: c.dim }}>
-                      Against the 24-year mean
-                    </div>
-                    <div style={{ fontSize: "1.55em", fontWeight: 700,
-                      color: (latest - avg) * meta.dir > 0 ? c.good : c.bad }}>
-                      {latest > avg ? "+" : ""}{fmt(latest - avg, u)}
-                    </div>
+                  <div style={{ fontSize: "1.55em", fontWeight: 600,
+                    color: (latest - avg) * meta.dir > 0 ? c.good : c.bad }}>
+                    {latest > avg ? "+" : ""}{fmt(latest - avg, u)}
                   </div>
                 </div>
 
@@ -1152,33 +1449,29 @@ export default function KenyaPulse() {
                   </div>
                 ))}
 
-                <div style={{ fontSize: ".78em", color: c.faint, marginTop: 12 }}>
-                  World Bank national accounts, pulled live. A flat grey mark on the chart is
-                  a year the source has not published yet.
-                </div>
-              </Card>
+
+              </Section>
             </>;
           })()}
 
           {/* ================= OUTLOOK ================= */}
           {tab === "outlook" && <>
-            <Card c={c} pad={narrow ? 13 : 16} i={0}>
-              <div style={{ ...S.eyebrow, marginBottom: 8 }}>The forward view · IMF</div>
+            <Section title="The forward view · IMF" c={c} i={0} pad={narrow ? 16 : 18}>
               <div style={{ fontSize: ".88em", color: c.dim }}>
                 Left of the marker has happened. Right of it is projection, and a projection is an
                 opinion with a spreadsheet attached. Read the direction, not the decimal.
               </div>
-            </Card>
+            </Section>
             {Object.entries(FORECAST).map(([k, m], gi) => {
               const split = F_YEARS.indexOf(m.actualTo);
               const lo = Math.min(...m.v), hi = Math.max(...m.v), r = (hi - lo) || 1;
               const now = m.v[split], end = m.v[m.v.length - 1];
               const better = (end - now) * m.dir > 0;
               return (
-                <Card c={c} pad={narrow ? 13 : 16} key={k} i={gi + 1}>
+                <Section c={c} key={k} i={gi + 1} pad={narrow ? 16 : 18}>
                   <div style={{ display: "flex", justifyContent: "space-between",
                     alignItems: "baseline", marginBottom: 14 }}>
-                    <span style={{ fontWeight: 700 }}>{m.label}</span>
+                    <span style={{ fontWeight: 600, letterSpacing: "-.015em" }}>{m.label}</span>
                     <Pill tone={better ? "good" : "stress"} c={c}>
                       {better ? "improves" : "deteriorates"} to 2031
                     </Pill>
@@ -1213,11 +1506,10 @@ export default function KenyaPulse() {
                         fontWeight: y > m.actualTo ? 600 : 400 }}>{String(y).slice(2)}</span>
                     ))}
                   </div>
-                </Card>
+                </Section>
               );
             })}
-            <Card c={c} pad={narrow ? 13 : 16} i={7}>
-              <div style={{ ...S.eyebrow, marginBottom: 10 }}>What the forward view says</div>
+            <Section title="What the forward view says" c={c} i={7} pad={narrow ? 16 : 18}>
               <div style={{ fontSize: ".9em", display: "grid", gap: 9 }}>
                 <div>· Kenya grows near 5% to 2031, above the Sub-Saharan average of 4.4% throughout.</div>
                 <div>· Inflation settles around 5.5%, higher than the recent run but inside the band.</div>
@@ -1229,40 +1521,42 @@ export default function KenyaPulse() {
                   government paper and likely stays there.
                 </div>
               </div>
-            </Card>
+            </Section>
           </>}
 
           {/* ================= DATA ================= */}
           {tab === "data" && <>
-            <Card c={c} pad={narrow ? 13 : 16} i={0}>
-              <div style={{ display: "flex", justifyContent: "space-between",
-                alignItems: "center", marginBottom: 12 }}>
-                <span style={S.eyebrow}>Feed</span>
+            <Section title="Updates" c={c} i={0} pad={narrow ? 16 : 18}>
+              <div style={{ display: "flex", justifyContent: "flex-end",
+                alignItems: "center", marginBottom: 10 }}>
                 <Pill tone={data.source === "seed" ? "steady" : "good"} c={c}>
                   {data.source === "seed" ? "seeded" : "live"}
                 </Pill>
               </div>
-              <div style={{ fontSize: ".86em", color: c.dim, marginBottom: 12 }}>
-                {cfg.feed
-                  ? <>Reading <code style={{ fontSize: ".92em", wordBreak: "break-all" }}>{cfg.feed}</code></>
-                  : "No feed set. Running on the seeded readings — point it at your data.json in settings."}
+              <div style={{ fontSize: ".88em", color: c.dim, marginBottom: 14, lineHeight: 1.5 }}>
+                Readings sync automatically each time the app opens.
               </div>
               {sync.msg && <div style={{ fontSize: ".84em", marginBottom: 12,
                 color: sync.state === "err" ? c.bad : c.good }}>{sync.msg}</div>}
-              <button onClick={() => pull(false)} className="kp-f kp-tap"
-                disabled={sync.state === "busy"}
-                style={{ ...S.btn(c.chip, c.ink), border: `1px solid ${c.line}`, fontWeight: 600,
-                  opacity: sync.state === "busy" ? .6 : 1 }}>
-                {sync.state === "busy" ? "Fetching…" : "Sync now"}
-              </button>
-            </Card>
-
-            <Card c={c} pad={narrow ? 13 : 16} i={1}>
-              <div style={{ ...S.eyebrow, marginBottom: 10 }}>Where sources disagree</div>
-              <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 14 }}>
-                Nothing is averaged. Averaging two vintages makes a third figure nobody published.
-                The higher-ranked source is kept and the other is shown.
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => pull(false)} className="kp-f kp-tap"
+                  disabled={sync.state === "busy"}
+                  style={{ ...S.btn(c.chip, c.ink), fontWeight: 600,
+                    opacity: sync.state === "busy" ? .6 : 1 }}>
+                  {sync.state === "busy" ? "Fetching…" : "Sync now"}
+                </button>
+                <button onClick={() => { setData(SEED); store.set("kp.data", SEED);
+                  setSync({ state: "idle", msg: "Back to the seeded readings." }); }}
+                  className="kp-f kp-tap"
+                  style={{ ...S.btn(c.chip, c.dim), fontWeight: 600 }}>
+                  Reset
+                </button>
               </div>
+            </Section>
+
+            <Section title="Where sources disagree" c={c} i={1} pad={narrow ? 16 : 18}
+              note="Nothing is averaged. Averaging two vintages makes a third figure nobody published.">
+
               {data.disagreements.map((d, n) => (
                 <div key={d.id} style={{ padding: "12px 0", borderTop: n ? `1px solid ${c.line}` : "none" }}>
                   <div style={{ display: "flex", justifyContent: "space-between",
@@ -1272,23 +1566,23 @@ export default function KenyaPulse() {
                   </div>
                   <div style={{ display: "flex", gap: 20, marginBottom: 8 }}>
                     <div>
-                      <div style={{ fontSize: ".71em", color: c.good, fontWeight: 700 }}>KEPT</div>
-                      <div style={{ fontWeight: 700 }}>{d.keptValue}</div>
+                      <div style={{ fontSize: ".71em", color: c.good, fontWeight: 600 }}>KEPT</div>
+                      <div style={{ fontWeight: 600 }}>{d.keptValue}</div>
                       <div style={{ fontSize: ".74em", color: c.faint }}>{d.kept}</div>
                     </div>
                     <div style={{ opacity: .5 }}>
-                      <div style={{ fontSize: ".71em", color: c.dim, fontWeight: 700 }}>ALSO SEEN</div>
-                      <div style={{ fontWeight: 700 }}>{d.otherValue}</div>
+                      <div style={{ fontSize: ".71em", color: c.dim, fontWeight: 600 }}>ALSO SEEN</div>
+                      <div style={{ fontWeight: 600 }}>{d.otherValue}</div>
                       <div style={{ fontSize: ".74em", color: c.faint }}>{d.other}</div>
                     </div>
                   </div>
                   <div style={{ fontSize: ".82em", color: c.dim }}>{d.why}</div>
                 </div>
               ))}
-            </Card>
+            </Section>
 
-            <Card c={c} pad={narrow ? 13 : 16} i={2}>
-              <div style={{ ...S.eyebrow, marginBottom: 10 }}>Sources</div>
+            <Section title="Sources" c={c} i={2} pad={narrow ? 16 : 18}
+              note="If a source fails, the last good reading is carried forward and labelled with its age.">
               {SOURCES.map(s2 => (
                 <div key={s2.name} style={{ display: "flex", gap: 10, padding: "10px 0",
                   borderBottom: `1px solid ${c.line}` }}>
@@ -1300,14 +1594,10 @@ export default function KenyaPulse() {
                   </span>
                 </div>
               ))}
-              <div style={{ fontSize: ".8em", color: c.faint, marginTop: 12 }}>
-                Six sources, none paid, none needing a key. If one fails the last good reading is
-                carried forward and labelled with its age rather than left blank.
-              </div>
-            </Card>
 
-            <Card c={c} pad={narrow ? 13 : 16} i={3}>
-              <div style={{ ...S.eyebrow, marginBottom: 10 }}>Every reading</div>
+            </Section>
+
+            <Section title="Every reading" c={c} i={3} pad={narrow ? 16 : 18}>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".82em" }}>
                   <thead>
@@ -1322,7 +1612,7 @@ export default function KenyaPulse() {
                     {inds.map(i => (
                       <tr key={i.id} style={{ borderTop: `1px solid ${c.line}` }}>
                         <td style={{ padding: "8px 8px 8px 0" }}>{i.label}</td>
-                        <td style={{ padding: "8px", textAlign: "right", fontWeight: 700,
+                        <td style={{ padding: "8px", textAlign: "right", fontWeight: 600,
                           color: i.state === "stress" ? c.bad : i.state === "good" ? c.good : c.ink }}>
                           {fmt(i.value, i.unit)}
                         </td>
@@ -1337,138 +1627,37 @@ export default function KenyaPulse() {
                   </tbody>
                 </table>
               </div>
-            </Card>
+            </Section>
 
-            <Card c={c} pad={narrow ? 13 : 16} i={4}>
-              <div style={{ display: "flex", justifyContent: "space-between",
-                alignItems: "center", marginBottom: 10 }}>
-                <span style={S.eyebrow}>On this device</span>
-                <Pill tone={saved === false ? "stress" : saved ? "good" : "steady"} c={c}>
-                  {saved === false ? "not saving" : saved ? "saved" : "idle"}
-                </Pill>
+            <Section title="On this device" c={c} i={4} pad={narrow ? 16 : 18}>
+              <div style={{ fontSize: ".85em", color: c.dim, lineHeight: 1.5 }}>
+                Your settings live on this device only. Nothing is sent anywhere, and no
+                account is needed.
               </div>
-              {(() => {
-                const rep = store.report();
-                const vercelPreview = /-[a-z0-9]{8,}\-/.test(rep.origin);
-                return (
-                  <>
-                    <div style={{ fontSize: ".85em", color: c.dim, marginBottom: 12 }}>
-                      Settings are kept per website address. Two addresses for the same app
-                      each get their own drawer, which is the usual reason an app looks like
-                      it has forgotten you.
-                    </div>
-                    <div style={{ display: "grid", gap: 8, fontSize: ".84em" }}>
-                      <Line c={c} k="Storage"
-                        v={rep.ok === false ? (rep.error || "unavailable") : "working"}
-                        bad={rep.ok === false} />
-                      <Line c={c} k="This address" v={rep.origin} mono />
-                      {rep.keys.map(x => (
-                        <Line key={x.key} c={c} k={x.key}
-                          v={`${(x.bytes / 1024).toFixed(1)} KB`} />
-                      ))}
-                      {rep.keys.length === 0 &&
-                        <Line c={c} k="Stored" v="nothing yet" bad />}
-                      <Line c={c} k="Writes this session"
-                        v={rep.writes + (rep.lastWrite ? ` · last ${rep.lastWrite}` : "")} />
-                    </div>
-                    {vercelPreview && (
-                      <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
-                        background: c.chip, fontSize: ".84em", color: c.warn }}>
-                        <strong>This looks like a one-off deployment address.</strong> Each
-                        deploy gets its own, and each keeps separate settings. Install from
-                        your stable address instead so they carry across updates.
-                      </div>
-                    )}
-                    {rep.ok === false && (
-                      <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
-                        background: c.chip, fontSize: ".84em", color: c.bad }}>
-                        <strong>Nothing is being saved.</strong> Private browsing, or site
-                        data blocked for this address. Settings will last only this session.
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </Card>
-
-            <Card c={c} pad={narrow ? 13 : 16} i={5}>
-              <div style={{ ...S.eyebrow, marginBottom: 10 }}>Briefing</div>
-              <pre style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
-                fontSize: ".76em", lineHeight: 1.6, whiteSpace: "pre-wrap", margin: 0,
-                maxHeight: 300, overflowY: "auto" }}>{brief}</pre>
-              <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-                <button onClick={() => copy(brief)} className="kp-f kp-tap"
-                  style={S.btn(copied ? c.good : c.cool, "#fff")}>
-                  {copied ? "Copied" : "Copy briefing"}
-                </button>
-                <button onClick={() => copy(JSON.stringify({ cfg, data }, null, 1))}
-                  className="kp-f kp-tap"
-                  style={{ ...S.btn(c.chip, c.ink), border: `1px solid ${c.line}`, fontWeight: 600 }}>
-                  Copy backup
-                </button>
-                <button onClick={() => { setData(SEED); store.set("kp.data", SEED);
-                  setSync({ state: "idle", msg: "Back to the seeded readings." }); }}
-                  className="kp-f kp-tap"
-                  style={{ ...S.btn("transparent", c.dim), border: `1px solid ${c.line}`, fontWeight: 600 }}>
-                  Reset
-                </button>
-              </div>
-
-              <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${c.line}` }}>
-                <div style={{ ...S.eyebrow, marginBottom: 8 }}>Restore</div>
-                <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 10 }}>
-                  Paste a backup here to put settings and readings back. Useful when moving
-                  to a new address or a new phone.
+              {store.report().ok === false && (
+                <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
+                  background: c.chip, fontSize: ".84em", color: c.bad }}>
+                  <strong>Nothing is being saved.</strong> This usually means private
+                  browsing, or site data blocked for this address. The app still works,
+                  but your settings will last only until you close it.
                 </div>
-                <textarea value={restoreText} rows={3}
-                  onChange={e => { setRestoreText(e.target.value); setRestoreMsg(""); }}
-                  placeholder='{"cfg":{...},"data":{...}}'
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: 11,
-                    border: `1px solid ${c.line}`, background: c.card, color: c.ink,
-                    fontSize: ".8em", fontFamily: "ui-monospace, Menlo, monospace",
-                    resize: "vertical" }} />
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
-                  <button onClick={restore} disabled={!restoreText.trim()}
-                    className="kp-f kp-tap"
-                    style={{ ...S.btn(c.chip, c.ink), border: `1px solid ${c.line}`,
-                      fontWeight: 600, opacity: restoreText.trim() ? 1 : .5 }}>
-                    Restore
-                  </button>
-                  {restoreMsg && (
-                    <span style={{ fontSize: ".82em",
-                      color: restoreMsg.startsWith("Restored") ? c.good : c.bad }}>
-                      {restoreMsg}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </Card>
+              )}
+            </Section>
           </>}
         </div>
 
         {/* ---------------- footer ---------------- */}
-        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${c.line}`,
-          textAlign: "center", fontSize: ".78em", color: c.faint, lineHeight: 1.6 }}>
-          Each indicator is scored against its own recent run, not a forecast. The pulse score is
-          the share of indicators moving the right way. The ladder is arithmetic on published rates.
-          <div>
-            <a href="https://gachichio.org" target="_blank" rel="noopener noreferrer" className="kp-f"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14,
-                padding: "7px 15px", borderRadius: 20, border: `1px solid ${c.line}`,
-                background: c.card, color: c.dim, fontWeight: 700, textDecoration: "none",
-                fontSize: "1em", transition: "border-color .18s, color .18s, transform .12s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = c.good;
-                e.currentTarget.style.color = c.ink; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = c.line;
-                e.currentTarget.style.color = c.dim; }}>
-              Made with <span style={{ color: c.bad }}>❤</span> by Brian Gachichio
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .5 }}>
-                <path d="M7 17L17 7M17 7H8M17 7v9" />
-              </svg>
-            </a>
-          </div>
-          <div style={{ marginTop: 10 }}>CBK · NSE · KNBS · Treasury · World Bank · IMF · FRED</div>
+        <div style={{ marginTop: 34, paddingBottom: 8, textAlign: "center" }}>
+          <a href="https://gachichio.org/kenya-pulse" target="_blank" rel="noopener noreferrer"
+            className="kp-f kp-tap"
+            style={{ display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "10px 18px", borderRadius: 22, background: c.chip,
+              color: c.cool, fontWeight: 600, textDecoration: "none", fontSize: ".88em",
+              minHeight: 44, transition: "opacity .2s" }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = ".8"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
+            Made with <span style={{ color: c.bad }}>❤</span> by Brian Gachichio
+          </a>
         </div>
       </div>
 
@@ -1477,18 +1666,21 @@ export default function KenyaPulse() {
         <div onClick={() => setOpenSettings(false)} role="dialog" aria-modal="true"
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 50,
             display: "flex", alignItems: "flex-end", justifyContent: "center",
-            animation: "kp-veil .22s both" }}>
+            animation: "kp-veil .28s both" }} className="kp-veil">
           <div onClick={e => e.stopPropagation()}
             style={{ background: c.bg, width: "100%", maxWidth: 720, maxHeight: "90vh",
               overflowY: "auto", borderRadius: "20px 20px 0 0",
               padding: narrow ? "18px 12px 30px" : "20px 16px 34px",
               paddingBottom: "max(34px, env(safe-area-inset-bottom))",
-              animation: "kp-sheet .3s cubic-bezier(.22,.9,.3,1) both" }}>
+              animation: "kp-sheet .42s cubic-bezier(.32,.72,0,1) both" }}>
+            <div style={{ width: 36, height: 5, borderRadius: 5, background: c.line,
+              margin: "0 auto 18px" }} />
             <div style={{ display: "flex", justifyContent: "space-between",
-              alignItems: "center", marginBottom: 20 }}>
-              <span style={{ fontSize: "1.2em", fontWeight: 800 }}>Settings</span>
+              alignItems: "center", marginBottom: 24 }}>
+              <span style={{ fontSize: "1.35em", fontWeight: 600,
+                letterSpacing: "-.025em" }}>Settings</span>
               <button onClick={() => setOpenSettings(false)} className="kp-f kp-tap"
-                style={S.icon} aria-label="Close">✕</button>
+                style={S.icon} aria-label="Close"><CloseGlyph /></button>
             </div>
 
             <Row label="Theme" c={c}>
@@ -1499,15 +1691,64 @@ export default function KenyaPulse() {
               <Seg value={cfg.size} onChange={v => set("size", v)} c={c}
                 opts={[["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]]} />
             </Row>
-            <Row label="Data feed" hint="The data.json your VM writes. Blank runs on seeded readings." c={c}>
-              <input value={cfg.feed} onChange={e => set("feed", e.target.value)}
-                placeholder="https://gachichio.org/pulse/data.json" inputMode="url"
-                style={{ width: "100%", padding: "11px 13px", borderRadius: 11,
-                  border: `1px solid ${c.line}`, background: c.card, color: c.ink, fontSize: ".9em" }} />
-            </Row>
-            <Row label="Sync on open" c={c}>
+            <Row label="Sync on open" hint="Fetch the latest readings each time the app starts." c={c}>
               <Toggle on={cfg.autoSync} onChange={v => set("autoSync", v)} c={c} />
             </Row>
+
+            <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Daily notification</div>
+            {typeof Notification === "undefined" ? (
+              <div style={{ fontSize: ".84em", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
+                This browser cannot show notifications. On an iPhone, add the app to the
+                home screen from Safari's share menu first.
+              </div>
+            ) : (
+              <>
+                <Row label="Daily briefing"
+                  hint="Refreshes the readings and sends one notification at your chosen time, on the days you choose. It fires while the app is open, or on the next open after that time."
+                  c={c}>
+                  <Toggle on={cfg.notifyOn} onChange={enableNotify} c={c} />
+                </Row>
+                {notePerm === "denied" && (
+                  <div style={{ fontSize: ".84em", color: c.bad, marginBottom: 24 }}>
+                    Notifications are blocked for this site. Allow them in the browser's
+                    site settings, then switch this on again.
+                  </div>
+                )}
+                {cfg.notifyOn && (
+                  <>
+                    <Row label="Time of day" c={c}>
+                      <input type="time" value={cfg.notifyTime}
+                        onChange={e => set("notifyTime", e.target.value || "08:00")}
+                        style={{ padding: "10px 12px", borderRadius: 10,
+                          border: `1px solid ${c.line}`, background: c.card,
+                          color: c.ink, fontSize: ".95em" }} />
+                    </Row>
+                    <Row label="Days" hint="Deselect all to pause without switching off." c={c}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {[["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4],
+                          ["Fri", 5], ["Sat", 6], ["Sun", 0]].map(([l, d]) => {
+                          const on = (cfg.notifyDays || []).includes(d);
+                          return (
+                            <button key={d} className="kp-f kp-tap"
+                              onClick={() => set("notifyDays", on
+                                ? cfg.notifyDays.filter(x => x !== d)
+                                : [...(cfg.notifyDays || []), d])}
+                              style={{ padding: "8px 12px", borderRadius: 9, fontSize: ".82em",
+                                cursor: "pointer", minHeight: 40,
+                                border: `1px solid ${on ? c.good : c.line}`,
+                                background: on ? c.good : "transparent",
+                                color: on ? "#fff" : c.dim, fontWeight: on ? 600 : 500,
+                                transition: "background .18s, color .18s" }}>
+                              {l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </Row>
+                  </>
+                )}
+              </>
+            )}
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Tax assumptions</div>
             <Row label={`Treasury bills and deposits · ${cfg.taxBill}%`}
@@ -1528,11 +1769,6 @@ export default function KenyaPulse() {
             </Row>
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Display</div>
-            <Row label={`Anomaly threshold · z ${cfg.zAlert}`} hint="Lower catches more." c={c}>
-              <input type="range" min="0.5" max="3" step="0.1" value={cfg.zAlert}
-                onChange={e => set("zAlert", +e.target.value)}
-                style={{ width: "100%", accentColor: c.good }} />
-            </Row>
             <Row label="Show target bands" hint="The CBK inflation band, the 55% debt anchor." c={c}>
               <Toggle on={cfg.showBands} onChange={v => set("showBands", v)} c={c} />
             </Row>
@@ -1559,8 +1795,8 @@ export default function KenyaPulse() {
             </Row>
 
             <div style={{ fontSize: ".78em", color: c.faint, marginTop: 22, lineHeight: 1.6 }}>
-              Settings are stored on this device. In the Claude preview they last the session;
-              once the app is on your own domain they persist properly.
+              Settings are stored on this device only. Nothing is sent anywhere, and no
+              account is needed.
             </div>
           </div>
         </div>
@@ -1569,15 +1805,25 @@ export default function KenyaPulse() {
   );
 }
 
-/* ---------- diagnostics row ---------- */
-function Line({ k, v, c, mono, bad }) {
+/* A grouped section: the heading belongs to the space above the card, not
+   inside it. That single change is most of what makes a list feel native. */
+function Section({ title, note, children, c, i = 0, pad = 16, style }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-      <span style={{ color: c.dim, flexShrink: 0 }}>{k}</span>
-      <span style={{ fontWeight: 600, textAlign: "right", wordBreak: "break-all",
-        color: bad ? c.bad : c.ink,
-        fontFamily: mono ? "ui-monospace, Menlo, monospace" : "inherit",
-        fontSize: mono ? ".92em" : "1em" }}>{v}</span>
+    <div style={{ minWidth: 0, animation: `kp-rise .42s ${i * 0.05}s both cubic-bezier(.32,.72,0,1)` }}>
+      {title && (
+        <div style={{ fontSize: ".76em", fontWeight: 600, letterSpacing: ".02em",
+          color: c.dim, padding: "0 16px 7px", textTransform: "uppercase" }}>
+          {title}
+        </div>
+      )}
+      <div style={{ background: c.card, borderRadius: 18, padding: pad,
+        boxShadow: c.shadow, minWidth: 0, overflow: "hidden", ...style }}>
+        {children}
+      </div>
+      {note && (
+        <div style={{ fontSize: ".76em", color: c.faint, padding: "8px 16px 0",
+          lineHeight: 1.45 }}>{note}</div>
+      )}
     </div>
   );
 }
@@ -1585,23 +1831,25 @@ function Line({ k, v, c, mono, bad }) {
 /* ---------- settings helpers ---------- */
 function Row({ label, hint, children, c }) {
   return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ fontWeight: 600, marginBottom: hint ? 3 : 9, fontSize: ".95em" }}>{label}</div>
-      {hint && <div style={{ fontSize: ".8em", color: c.faint, marginBottom: 9 }}>{hint}</div>}
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontWeight: 500, marginBottom: hint ? 3 : 10, fontSize: ".95em",
+        letterSpacing: "-.012em" }}>{label}</div>
+      {hint && <div style={{ fontSize: ".8em", color: c.faint, marginBottom: 10,
+        lineHeight: 1.45 }}>{hint}</div>}
       {children}
     </div>
   );
 }
 function Seg({ value, onChange, opts, c }) {
   return (
-    <div style={{ display: "flex", background: c.chip, borderRadius: 11, padding: 3 }}>
+    <div style={{ display: "flex", background: c.seg, borderRadius: 10, padding: 2 }}>
       {opts.map(([v, l]) => (
         <button key={v} onClick={() => onChange(v)} className="kp-f"
-          style={{ flex: 1, padding: "9px 4px", border: "none", borderRadius: 9, cursor: "pointer",
-            background: value === v ? c.card : "transparent",
-            color: value === v ? c.ink : c.dim, fontWeight: value === v ? 700 : 500,
-            fontSize: ".88em", boxShadow: value === v ? c.shadow : "none",
-            transition: "background .2s, color .2s" }}>{l}</button>
+          style={{ flex: 1, padding: "8px 4px", border: "none", borderRadius: 8, cursor: "pointer",
+            background: value === v ? c.segOn : "transparent",
+            color: value === v ? c.ink : c.dim, fontWeight: 600, fontSize: ".87em",
+            boxShadow: value === v ? c.segShadow : "none",
+            transition: "background .22s cubic-bezier(.32,.72,0,1), color .2s" }}>{l}</button>
       ))}
     </div>
   );
@@ -1609,11 +1857,19 @@ function Seg({ value, onChange, opts, c }) {
 function Toggle({ on, onChange, c }) {
   return (
     <button onClick={() => onChange(!on)} className="kp-f" aria-pressed={on} role="switch"
-      style={{ width: 52, height: 30, borderRadius: 30, border: "none", cursor: "pointer",
-        background: on ? c.good : c.line, position: "relative", transition: "background .2s" }}>
-      <span style={{ position: "absolute", top: 3, left: on ? 25 : 3, width: 24, height: 24,
-        borderRadius: 24, background: "#fff", transition: "left .2s cubic-bezier(.3,.8,.4,1)",
-        boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+      style={{ width: 51, height: 44, borderRadius: 31, border: "none", cursor: "pointer",
+        background: "transparent", position: "relative", flexShrink: 0, padding: 0,
+        display: "grid", placeItems: "center",
+        transition: "background .28s cubic-bezier(.32,.72,0,1)" }}>
+      <span style={{ width: 51, height: 31, borderRadius: 31, position: "relative",
+        background: on ? c.good : c.chip,
+        transition: "background .28s cubic-bezier(.32,.72,0,1)" }}>
+        <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27,
+          borderRadius: 27, background: "#fff",
+          transform: on ? "translateX(20px)" : "none",
+          transition: "transform .28s cubic-bezier(.32,.72,0,1)",
+          boxShadow: "0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16)" }} />
+      </span>
     </button>
   );
 }
@@ -1637,6 +1893,17 @@ function feedDate(id, feed, fallback) {
 function mergeFeed(seed, feed) {
   if (!feed || typeof feed !== "object" || !Array.isArray(feed.signals)) return seed;
   const live = Object.fromEntries(feed.signals.map(s => [s.id, s]));
+  /* Anything the collector publishes that the seed has never heard of is
+     appended rather than dropped. Silently discarding a live indicator because
+     nobody added it here is how a feed and an app drift apart. */
+  const known = new Set(seed.indicators.map(i => i.id));
+  const extra = feed.signals.filter(s => !known.has(s.id) && typeof s.value === "number")
+    .map(s => ({ id: s.id, label: s.label, group: s.group || "Other", unit: s.unit || "",
+      dir: s.dir ?? 0, value: s.value, prior: s.prior ?? s.value, priorLabel: "last reading",
+      asOf: feed.asOf, src: s.source || "feed",
+      hist: Array.isArray(s.hist) && s.hist.length > 2 ? s.hist : [s.value],
+      note: "Added by the feed." }));
+
   const indicators = seed.indicators.map(i => {
     const s = live[i.id];
     if (!s || typeof s.value !== "number") return i;
@@ -1649,7 +1916,8 @@ function mergeFeed(seed, feed) {
       src: s.source === "cbk" ? "CBK" : s.source === "nse" ? "NSE"
         : s.source === "manual" ? "Typed" : s.source || i.src };
   });
-  return { ...seed, indicators, asOf: feed.asOf || seed.asOf, source: "live",
+  return { ...seed, indicators: [...indicators, ...extra],
+    asOf: feed.asOf || seed.asOf, source: "live",
     ladder: Array.isArray(feed.ladder) && feed.ladder.length ? feed.ladder : seed.ladder,
     chain: Array.isArray(feed.chain) && feed.chain.length ? feed.chain : seed.chain,
     breaks: Array.isArray(feed.breaks) && feed.breaks.length ? feed.breaks : seed.breaks,
@@ -1660,27 +1928,19 @@ function mergeFeed(seed, feed) {
 }
 
 /* ---------- briefing ---------- */
-function buildBrief(inds, ladder, breaks, call, asOf, pulse, verdict) {
+/* Five lines an executive can read in ten seconds. The narrative call sits
+   above this in the Briefing card; the copy button carries both. */
+function buildBrief(inds, ladder, breaks, asOf) {
   const g = Object.fromEntries(inds.map(i => [i.id, i]));
   const f = id => g[id] ? `${g[id].value}${g[id].unit}` : "—";
+  const best = ladder[0], worst = ladder[ladder.length - 1];
   const off = breaks.filter(b => b.state !== "normal");
-  const L = [`KENYA PULSE — ${asOf}`, `Score ${pulse}/100 · ${verdict}`, "",
-    `Policy    CBR ${f("cbr")}, KESONIA ${f("kesonia")}, 91-day ${f("tbill")}`,
-    `Prices    inflation ${f("inflation")}, core ${f("core")}`,
-    `Banking   lending ${f("lending")}, deposit ${f("deposit")}, credit ${f("credit")}, NPLs ${f("npl")}`,
-    `External  KES/USD ${f("kes_usd")}, reserves ${f("reserves")}, CAB ${f("cab")}`,
-    `Activity  GDP ${f("gdp")}, PMI ${f("pmi")}`,
-    `Markets   NASI ${f("nasi")}, cap ${f("mktcap")}`,
-    `Fiscal    debt ${f("debt")}, ${f("debt_gdp")} of GDP, service ${f("debtserv")} of revenue`,
-    `Global    Fed ${f("fed_funds")}, US 10yr ${f("us10y")}, SSA ${f("ssa_gdp")}`, "",
-    "REAL RETURN AFTER TAX",
-    ...ladder.slice(0, 4).map(r => `  ${r.label.padEnd(24)}${r.real > 0 ? "+" : ""}${r.real.toFixed(2)}%`),
-    `  ${ladder[ladder.length - 1].label.padEnd(24)}${ladder[ladder.length - 1].real.toFixed(2)}%`, ""];
+  const L = [`KENYA PULSE — ${asOf}`,
+    `Policy ${f("cbr")} · Inflation ${f("inflation")} · KES/USD ${f("kes_usd")}`,
+    `Best after tax and inflation: ${best.label} ${best.real > 0 ? "+" : ""}${best.real.toFixed(2)}% · ${worst.label} ${worst.real.toFixed(2)}%`,
+    `Debt ${f("debt_gdp")} of GDP · Debt service ${f("debtserv")} of revenue`];
   if (off.length) {
-    L.push("OUTSIDE ITS USUAL RANGE");
-    off.forEach(b => L.push(`  ${b.name} ${b.value}${b.unit} (usual ${b.normalLo}–${b.normalHi})`));
-    L.push("");
+    L.push(`Off range: ${off.map(b => `${b.name} ${b.value}${b.unit}`).join(" · ")}`);
   }
-  L.push(call);
   return L.join("\n");
 }
