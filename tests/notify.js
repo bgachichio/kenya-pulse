@@ -135,6 +135,11 @@ const toggleNotify = async (r) => {
   ok('the new time reached the server', resubs.length === 1 && resubs[0].body.time === '06:45',
     JSON.stringify(resubs.map(c => c.body && c.body.time)));
   ok('the key was not fetched again', !CALLS.some(c => c.url.endsWith('/push/key')));
+  ok('the device did not mint a second subscription',
+    resubs[0] && resubs[0].body.subscription.endpoint === sub.body.subscription.endpoint,
+    `${sub.body.subscription.endpoint} vs ${resubs[0] && resubs[0].body.subscription.endpoint}`);
+  ok('so the server sees one device, rescheduled — not two',
+    SUBSCRIBED.endpoint === 'https://fcm.googleapis.com/fcm/send/TESTDEVICE');
 
   console.log('\n── CHANGING THE DAYS RE-REGISTERS');
   CALLS.length = 0;

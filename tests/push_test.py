@@ -137,6 +137,40 @@ client.post("/unsubscribe", json={"endpoint": APPLE})
 ok("unsubscribe empties the store",
    json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text()) == {})
 
+print("\n── CHANGING THE TIME REPLACES THE SCHEDULE, IT DOES NOT ADD ONE")
+client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
+                                "time": "08:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
+client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
+                                "time": "14:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
+store = json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text())
+ok("still exactly one schedule for the device", len(store) == 1, f"{len(store)} records")
+ok("it holds the new time only", store[CHROME]["time"] == "14:00", store[CHROME]["time"])
+ok("the old time no longer fires",       # 08:00 Nairobi == 05:00 UTC
+   not P.is_due(store[CHROME], at("2026-08-26T05:00:00")))
+ok("the new time does",                  # 14:00 Nairobi == 11:00 UTC
+   P.is_due(store[CHROME], at("2026-08-26T11:00:00")))
+
+fired = []
+P.send_due(now_utc=at("2026-08-26T05:00:00"), sender=lambda s, p: fired.append(s))
+ok("a pass at the old hour sends nothing", len(fired) == 0, str(len(fired)))
+P.send_due(now_utc=at("2026-08-26T11:00:00"), sender=lambda s, p: fired.append(s))
+ok("a pass at the new hour sends once", len(fired) == 1, str(len(fired)))
+P.send_due(now_utc=at("2026-08-26T11:30:00"), sender=lambda s, p: fired.append(s))
+ok("and not again that day", len(fired) == 1, str(len(fired)))
+
+# Moving the time after the day's briefing has gone must not buy a second one.
+client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
+                                "time": "17:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
+store = json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text())
+ok("a later time keeps the day's record of having sent",
+   store[CHROME]["lastSent"] == "2026-08-26", str(store[CHROME]["lastSent"]))
+P.send_due(now_utc=at("2026-08-26T14:00:00"), sender=lambda s, p: fired.append(s))
+ok("so changing the time again does not re-send today", len(fired) == 1, str(len(fired)))
+ok("but it does fire at the new time tomorrow",
+   P.is_due(store[CHROME], at("2026-08-27T14:00:00")))
+
+client.post("/unsubscribe", json={"endpoint": CHROME})
+
 print("\n── A SENDING PASS")
 client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
                                 "time": "08:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
