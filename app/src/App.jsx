@@ -118,6 +118,33 @@ async function pushSubscribe({ time, days }) {
   }
 }
 
+/* When the next one will actually arrive. Without this the app is silent
+   about a schedule it has already accepted, and a briefing set for a time
+   that has just passed looks like a broken feature rather than one waiting
+   for tomorrow. */
+function nextBriefing(time, days, from) {
+  if (!days || !days.length) return null;
+  const [h, m] = String(time || "08:00").split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(from);
+    d.setDate(d.getDate() + i);
+    d.setHours(h, m, 0, 0);
+    if (days.includes(d.getDay()) && d > from) return d;
+  }
+  return null;
+}
+
+function whenPhrase(next, from) {
+  if (!next) return "No days selected — nothing will be sent.";
+  const clock = next.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const days = Math.round((new Date(next).setHours(0, 0, 0, 0)
+    - new Date(from).setHours(0, 0, 0, 0)) / 86400000);
+  if (days === 0) return `Next briefing today at ${clock}.`;
+  if (days === 1) return `Next briefing tomorrow at ${clock}.`;
+  return `Next briefing ${next.toLocaleDateString("en-GB", { weekday: "long" })} at ${clock}.`;
+}
+
 async function pushUnsubscribe() {
   try {
     const reg = await navigator.serviceWorker.ready;
@@ -1845,6 +1872,11 @@ export default function KenyaPulse() {
                         })}
                       </div>
                     </Row>
+                    <div style={{ fontSize: ".84em", color: c.dim, marginTop: -12,
+                      marginBottom: 24, lineHeight: 1.5 }}>
+                      {whenPhrase(nextBriefing(cfg.notifyTime, cfg.notifyDays, now), now)}
+                      {" "}A time that has already passed today waits until its next day.
+                    </div>
                   </>
                 )}
               </>

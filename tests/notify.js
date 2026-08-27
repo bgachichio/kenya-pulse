@@ -149,6 +149,16 @@ const toggleNotify = async (r) => {
   ok('Saturday was added server-side', dayPost && dayPost.body.days.includes(6),
     dayPost && JSON.stringify(dayPost.body.days));
 
+  console.log('\n── THE APP SAYS WHEN THE NEXT ONE LANDS');
+  {
+    const t = txt(r.toJSON());
+    ok('a next-briefing line is shown', /Next briefing/.test(t), t.match(/Next briefing[^.]*\./)?.[0] || 'absent');
+    ok('it names a clock time', /Next briefing.*\d{2}:\d{2}/.test(t),
+      t.match(/Next briefing[^.]*\./)?.[0] || '');
+    ok('and warns that a passed time waits for its next day',
+      /already passed today waits/.test(t));
+  }
+
   console.log('\n── SWITCHING IT OFF CLEARS BOTH ENDS');
   CALLS.length = 0;
   await toggleNotify(r);

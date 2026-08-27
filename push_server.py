@@ -385,6 +385,9 @@ def main() -> int:
                    help="send to every subscription now, ignoring the schedule")
     p.add_argument("--genkeys", metavar="ENVFILE", help="create a VAPID pair at mode 600")
     p.add_argument("--list", action="store_true", help="count subscriptions")
+    p.add_argument("--forget", metavar="FRAGMENT",
+                   help="drop subscriptions whose endpoint contains FRAGMENT (a device "
+                        "that re-registered leaves its old address behind)")
     p.add_argument("--why", action="store_true",
                    help="for each device: its local time, and whether it is due right now")
     p.add_argument("--port", type=int, default=8100)
@@ -412,6 +415,15 @@ def main() -> int:
             print(f"    its clock  {stamp}")
             print(f"    last sent  {sub.get('lastSent') or 'never'}")
             print(f"    status     {'DUE NOW' if why is None else why}")
+        return 0
+    if a.forget:
+        with _Lock():
+            subs = _read()
+            gone = [e for e in subs if a.forget in e]
+            for e in gone:
+                subs.pop(e)
+            _write(subs)
+        print(f"removed {len(gone)} subscription(s)")
         return 0
     if a.list:
         subs = _read()
