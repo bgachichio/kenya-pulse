@@ -343,7 +343,16 @@ anyone has subscribed.
 
 ## C6 · Prove it on a real phone
 
-The one part no test on a build machine can do. Ten minutes, both handsets.
+The one part no test on a build machine can do, and the only evidence that the
+whole chain — device, Google or Apple, this VM — actually carries a message.
+`--test-send` fires immediately, ignoring the schedule, and deliberately does
+not consume the day's real send:
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && .venv-push/bin/python push_server.py --test-send"
+```
+
+Ten minutes, both handsets.
 
 **Android (Pixel, Chrome):**
 

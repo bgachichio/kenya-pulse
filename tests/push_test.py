@@ -153,6 +153,17 @@ again = P.send_due(now_utc=at("2026-08-24T05:15:00"), sender=lambda s, p: seen.a
 ok("a second cron run in the same hour sends nothing", again["sent"] == 0, json.dumps(again))
 ok("only ever one push queued", len(seen) == 1, f"{len(seen)}")
 
+print("\n── A DELIBERATE TEST SEND")
+forced = []
+tally = P.send_due(now_utc=at("2026-08-24T11:00:00"), sender=lambda s, p: forced.append(s), force=True)
+ok("reaches every device whatever the hour", tally["sent"] == 2, json.dumps(tally))
+after = json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text())
+ok("does not consume the real morning send",
+   all(v.get("lastSent") != "2026-08-24" for k, v in after.items() if k == APPLE),
+   json.dumps({k[-6:]: v.get("lastSent") for k, v in after.items()}))
+ok("so the genuine one still fires later",
+   P.is_due(after[APPLE], at("2026-08-24T17:00:00")), json.dumps(after[APPLE]))
+
 print("\n── A DEAD DEVICE IS DROPPED")
 
 

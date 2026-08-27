@@ -174,8 +174,12 @@ def is_due(sub: dict, now_utc: datetime) -> bool:
     return sub.get("lastSent") != local.date().isoformat()
 
 
-def send_due(now_utc: datetime | None = None, sender=None) -> dict:
-    """Returns counts rather than printing, so the tests can read them."""
+def send_due(now_utc: datetime | None = None, sender=None, force: bool = False) -> dict:
+    """Returns counts rather than printing, so the tests can read them.
+
+    force ignores the schedule and sends to everyone now. It deliberately does
+    not stamp lastSent: a test at four in the afternoon must not swallow
+    tomorrow's real briefing."""
     import requests
     from pywebpush import WebPushException, webpush
 
@@ -192,7 +196,7 @@ def send_due(now_utc: datetime | None = None, sender=None) -> dict:
     with _Lock():
         subs = _read()
         for endpoint, sub in list(subs.items()):
-            if not is_due(sub, now_utc):
+            if not force and not is_due(sub, now_utc):
                 tally["skipped"] += 1
                 continue
             local = now_utc.astimezone(ZoneInfo(sub.get("tz") or "Africa/Nairobi"))
@@ -205,7 +209,8 @@ def send_due(now_utc: datetime | None = None, sender=None) -> dict:
                         vapid_private_key=private, vapid_claims={"sub": subject},
                         ttl=int(GRACE.total_seconds()),
                     )
-                sub["lastSent"] = local.date().isoformat()
+                if not force:
+                    sub["lastSent"] = local.date().isoformat()
                 sub.pop("failures", None)
                 tally["sent"] += 1
             except WebPushException as e:
@@ -362,6 +367,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Kenya Pulse push service")
     p.add_argument("--serve", action="store_true", help="run the API")
     p.add_argument("--send-due", action="store_true", help="one sending pass, then exit")
+    p.add_argument("--test-send", action="store_true",
+                   help="send to every subscription now, ignoring the schedule")
     p.add_argument("--genkeys", metavar="ENVFILE", help="create a VAPID pair at mode 600")
     p.add_argument("--list", action="store_true", help="count subscriptions")
     p.add_argument("--port", type=int, default=8100)
@@ -374,6 +381,9 @@ def main() -> int:
         print(f"{len(subs)} subscription(s)")
         for s in subs.values():
             print(f"  {s.get('time')} {s.get('days')} {s.get('tz')} last={s.get('lastSent')}")
+        return 0
+    if a.test_send:
+        print(json.dumps(send_due(force=True)))
         return 0
     if a.send_due:
         print(json.dumps(send_due()))
