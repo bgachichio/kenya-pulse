@@ -282,14 +282,39 @@ internet — check with `sudo ss -tulpn | grep 8100` and expect `127.0.0.1:8100`
 
 ## C4 · Publish it through Caddy
 
-In the `gachichio.org` block:
+This goes **inside the `gachichio.org { … }` block of
+`/etc/caddy/Caddyfile`** — it is configuration, not a shell command.
+`handle_path` strips the prefix on the way through, so the service sees
+`/health` rather than `/pulse/push/health`.
 
 ```caddy
-handle /pulse/push/* {
-    uri strip_prefix /pulse/push
-    reverse_proxy 127.0.0.1:8100
-}
+	handle_path /pulse/push/* {
+		reverse_proxy 127.0.0.1:8100
+	}
 ```
+
+Edit it with `sudo nano /etc/caddy/Caddyfile`, or insert it in place — the
+validate step below is what makes either safe:
+
+```bash
+ssh $K $V "sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak"
+ssh $K $V "sudo python3 /dev/stdin" <<'EDIT'
+import re, pathlib, sys
+p = pathlib.Path("/etc/caddy/Caddyfile"); s = p.read_text()
+if "8100" in s:
+    sys.exit("already routed")
+m = re.search(r"^\s*gachichio\.org[^\n{]*\{[^\n]*$", s, re.M)
+if not m:
+    sys.exit("could not find the gachichio.org site block — edit by hand")
+p.write_text(s[:m.end()] + "\n\thandle_path /pulse/push/* {\n\t\treverse_proxy 127.0.0.1:8100\n\t}\n" + s[m.end():])
+print("inserted")
+EDIT
+```
+
+If `caddy validate` fails, put the backup back before reloading anything:
+`sudo cp /etc/caddy/Caddyfile.bak /etc/caddy/Caddyfile`. Caddy serves
+gachichio.org, the data feed and this service, so it is the one file on the box
+worth backing up before touching.
 
 ```bash
 ssh $K $V "sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy"
