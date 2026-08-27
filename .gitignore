@@ -11,6 +11,7 @@ manual.json
 
 # push service state — subscriber endpoints are other people's data, and the
 # store sits beside the code on the VM
+.venv-push/
 push-subscriptions.json
 push-subscriptions.lock
 push.log

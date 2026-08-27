@@ -196,13 +196,32 @@ record at both ends.
 
 ## C1 · Ship the files
 
+Take the files from a clean checkout rather than a download folder — there is
+no ambiguity about which version you are shipping.
+
 ```bash
+rm -rf /tmp/kp && git clone --depth 1 https://github.com/bgachichio/kenya-pulse /tmp/kp
+
 V="bgkaranja@34.35.177.164"; K="-i $HOME/.ssh/gcp_pulse"
-scp $K push_server.py requirements-push.txt $V:~/kenya-pulse/
-ssh $K $V "cd ~/kenya-pulse && pip3 install --user -r requirements-push.txt"
+scp $K /tmp/kp/push_server.py /tmp/kp/requirements-push.txt $V:~/kenya-pulse/
+ssh $K $V "ls -l ~/kenya-pulse/push_server.py"
 ```
 
-**You should see** the pinned versions install, `pywebpush` among them.
+**You should see** the file listed on the VM. If `scp` says *No such file or
+directory*, the clone did not happen — nothing below will work.
+
+Debian 12 refuses system-wide `pip install` (PEP 668, "externally-managed
+environment"), so the service gets its own virtual environment. This keeps the
+push dependencies away from the collector's, which is worth having anyway.
+
+```bash
+ssh $K $V "sudo apt-get install -y python3-venv"
+ssh $K $V "cd ~/kenya-pulse && python3 -m venv .venv-push \
+  && .venv-push/bin/pip install -q -r requirements-push.txt \
+  && .venv-push/bin/python -c 'import fastapi, pywebpush; print(\"deps ok\")'"
+```
+
+**You should see** `deps ok`.
 
 ## C2 · Make the keys — once, and never in the repo
 
@@ -210,7 +229,7 @@ VAPID is how a push service knows the sender is you. The private half is a
 credential: it never enters source, a prompt, or a screenshot.
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && python3 push_server.py --genkeys ~/secrets/kenya-pulse-push.env"
+ssh $K $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --genkeys ~/secrets/kenya-pulse-push.env"
 ```
 
 **You should see** one line: `Wrote /home/…/secrets/kenya-pulse-push.env (mode
@@ -232,7 +251,7 @@ After=network-online.target
 User=bgkaranja
 WorkingDirectory=/home/bgkaranja/kenya-pulse
 EnvironmentFile=/home/bgkaranja/secrets/kenya-pulse-push.env
-ExecStart=/usr/bin/python3 push_server.py --serve --port 8100
+ExecStart=/home/bgkaranja/kenya-pulse/.venv-push/bin/python push_server.py --serve --port 8100
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -253,6 +272,10 @@ ssh $K $V "curl -s http://127.0.0.1:8100/health"
 ```
 
 **You should see** `{"ok":true,"subscriptions":0}`.
+
+If systemd reports *failed because of unavailable resources or another system
+error*, it could not find something the unit names — almost always the env file
+from C2 or the venv from C1. `systemctl status kenya-pulse-push -l` names it.
 
 It binds `127.0.0.1` only. Caddy is the single thing on this box that faces the
 internet — check with `sudo ss -tulpn | grep 8100` and expect `127.0.0.1:8100`.
@@ -278,7 +301,7 @@ curl -s https://gachichio.org/pulse/push/health
 ## C5 · Send on a schedule
 
 ```bash
-ssh $K $V "crontab -l | { cat; echo '*/15 * * * * cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && /usr/bin/python3 push_server.py --send-due >> ~/push.log 2>&1'; } | crontab -"
+ssh $K $V "crontab -l | { cat; echo '*/15 * * * * cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && ~/kenya-pulse/.venv-push/bin/python push_server.py --send-due >> ~/push.log 2>&1'; } | crontab -"
 ```
 
 Every fifteen minutes it checks each subscription against **that device's own**
@@ -287,7 +310,7 @@ to at most once a day. A briefing more than three hours late is dropped rather
 than buzzing a phone at bedtime about this morning.
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && python3 push_server.py --send-due"
+ssh $K $V "cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && .venv-push/bin/python push_server.py --send-due"
 ```
 
 **You should see** `{"sent": 0, "failed": 0, "dropped": 0, "skipped": 0}` before
@@ -303,7 +326,7 @@ The one part no test on a build machine can do. Ten minutes, both handsets.
 |---|---|
 | Open the app, Settings → Daily briefing → on | The browser asks; allow it |
 | | The line "Scheduled. It arrives whether the app is open or not." |
-| `ssh $V "python3 push_server.py --list"` | one subscription, your time and days |
+| `ssh $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --list"` | one subscription, your time and days |
 | Set the time to two minutes ahead, **close the app entirely** (swipe it away) | |
 | Wait for the cron pass, or run `--send-due` by hand | The notification arrives with the app closed |
 | Tap it | The app opens on the **Edge** tab, at the briefing |
@@ -342,7 +365,7 @@ toggle on again.
 ## C8 · Living with it
 
 ```bash
-ssh $K $V "python3 push_server.py --list"      # who is subscribed, and when
+ssh $K $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --list"      # who is subscribed, and when
 ssh $K $V "tail -20 ~/push.log"                # what each pass did
 ```
 
