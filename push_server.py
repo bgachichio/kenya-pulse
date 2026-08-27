@@ -157,21 +157,35 @@ def load_data() -> dict:
 # --------------------------------------------------------------------------
 # sending
 # --------------------------------------------------------------------------
-def is_due(sub: dict, now_utc: datetime) -> bool:
+def due_reason(sub: dict, now_utc: datetime) -> str | None:
+    """None means send it. Otherwise a sentence saying why not — so that
+    "it did not notify me" is a question with an answer rather than a hunt."""
     if not sub.get("days"):
-        return False
+        return "no days are selected"
     try:
         local = now_utc.astimezone(ZoneInfo(sub.get("tz") or "Africa/Nairobi"))
     except (ZoneInfoNotFoundError, ValueError):
-        return False
+        return f"unknown timezone {sub.get('tz')!r}"
     # The app stores days the way JavaScript counts them: Sunday is 0.
     if ((local.weekday() + 1) % 7) not in sub["days"]:
-        return False
-    hh, mm = (int(x) for x in sub.get("time", "08:00").split(":"))
-    target = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if local < target or (local - target) > GRACE:
-        return False
-    return sub.get("lastSent") != local.date().isoformat()
+        return f"{local:%A} is not one of the chosen days"
+    try:
+        hh, mm = (int(x) for x in sub.get("time", "08:00").split(":"))
+        target = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    except ValueError:
+        return f"unreadable time {sub.get('time')!r}"
+    if local < target:
+        return f"not yet — {target:%H:%M} is {int((target - local).total_seconds() // 60)} min away"
+    late = local - target
+    if late > GRACE:
+        return f"too late — {target:%H:%M} passed {int(late.total_seconds() // 60)} min ago, past the {int(GRACE.total_seconds() // 3600)}h window"
+    if sub.get("lastSent") == local.date().isoformat():
+        return f"already sent today ({local.date()})"
+    return None
+
+
+def is_due(sub: dict, now_utc: datetime) -> bool:
+    return due_reason(sub, now_utc) is None
 
 
 def send_due(now_utc: datetime | None = None, sender=None, force: bool = False) -> dict:
@@ -371,11 +385,34 @@ def main() -> int:
                    help="send to every subscription now, ignoring the schedule")
     p.add_argument("--genkeys", metavar="ENVFILE", help="create a VAPID pair at mode 600")
     p.add_argument("--list", action="store_true", help="count subscriptions")
+    p.add_argument("--why", action="store_true",
+                   help="for each device: its local time, and whether it is due right now")
     p.add_argument("--port", type=int, default=8100)
     a = p.parse_args()
 
     if a.genkeys:
         return genkeys(Path(a.genkeys).expanduser())
+    if a.why:
+        now = datetime.now(timezone.utc)
+        subs = _read()
+        print(f"server now   {now:%Y-%m-%d %H:%M} UTC")
+        print(f"feed         {DATA} ({'present' if DATA.exists() else 'MISSING'})")
+        print(f"store        {STORE} ({len(subs)} subscription(s))")
+        if not subs:
+            print("\nNothing is subscribed — no device has switched the toggle on.")
+        for endpoint, sub in subs.items():
+            try:
+                local = now.astimezone(ZoneInfo(sub.get("tz") or "Africa/Nairobi"))
+                stamp = f"{local:%a %d %b %H:%M}"
+            except (ZoneInfoNotFoundError, ValueError):
+                stamp = "unknown timezone"
+            why = due_reason(sub, now)
+            print(f"\n  ...{endpoint[-24:]}")
+            print(f"    wants      {sub.get('time')} on days {sub.get('days')} ({sub.get('tz')})")
+            print(f"    its clock  {stamp}")
+            print(f"    last sent  {sub.get('lastSent') or 'never'}")
+            print(f"    status     {'DUE NOW' if why is None else why}")
+        return 0
     if a.list:
         subs = _read()
         print(f"{len(subs)} subscription(s)")

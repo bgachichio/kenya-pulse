@@ -326,11 +326,13 @@ curl -s https://gachichio.org/pulse/push/health
 ## C5 · Send on a schedule
 
 ```bash
-ssh $K $V "crontab -l | { cat; echo '*/15 * * * * cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && ~/kenya-pulse/.venv-push/bin/python push_server.py --send-due >> ~/push.log 2>&1'; } | crontab -"
+ssh $K $V "crontab -l | { cat; echo '*/5 * * * * cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && ~/kenya-pulse/.venv-push/bin/python push_server.py --send-due >> ~/push.log 2>&1'; } | crontab -"
 ```
 
-Every fifteen minutes it checks each subscription against **that device's own**
-local time and sends only where the chosen minute has arrived. A device is sent
+Every five minutes it checks each subscription against **that device's own**
+local time and sends only where the chosen minute has arrived. Five rather than
+fifteen because the gap is how late a briefing can be: a run every quarter hour
+means a 08:00 notification can arrive at 08:14, which reads as broken. A device is sent
 to at most once a day. A briefing more than three hours late is dropped rather
 than buzzing a phone at bedtime about this morning.
 

@@ -66,6 +66,26 @@ ok("not sent twice on the same day",
    not P.is_due(sub(last="2026-08-24"), at("2026-08-24T05:30:00")))
 ok("sends again the next day", P.is_due(sub(last="2026-08-24"), at("2026-08-25T05:00:00")))
 
+print("\n── WHY NOT? (the answer a person gets when nothing arrived)")
+ok("says when it is still ahead",
+   "not yet" in P.due_reason(sub(), at("2026-08-24T04:00:00")),
+   P.due_reason(sub(), at("2026-08-24T04:00:00")))
+ok("says when the window has closed",
+   "too late" in P.due_reason(sub(), at("2026-08-24T09:00:00")),
+   P.due_reason(sub(), at("2026-08-24T09:00:00")))
+ok("says when today is already done",
+   "already sent today" in P.due_reason(sub(last="2026-08-24"), at("2026-08-24T05:30:00")),
+   P.due_reason(sub(last="2026-08-24"), at("2026-08-24T05:30:00")))
+ok("says when no day is chosen",
+   "no days" in P.due_reason(sub(days=()), at("2026-08-24T05:00:00")))
+ok("says when the day is not chosen",
+   "not one of the chosen days" in P.due_reason(sub(), at("2026-08-30T05:00:00")),
+   P.due_reason(sub(), at("2026-08-30T05:00:00")))
+ok("says nothing at all when it is due", P.due_reason(sub(), at("2026-08-24T05:00:00")) is None)
+ok("a malformed time is reported, not raised",
+   "unreadable" in (P.due_reason({**sub(), "time": "oops"}, at("2026-08-24T05:00:00")) or ""),
+   str(P.due_reason({**sub(), "time": "oops"}, at("2026-08-24T05:00:00"))))
+
 print("\n── DAYS (the app counts Sunday as 0, Python counts Monday as 0)")
 # 30 August 2026 is a Sunday, 29 August a Saturday
 ok("weekdays-only skips Sunday", not P.is_due(sub(), at("2026-08-30T05:00:00")))
