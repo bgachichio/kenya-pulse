@@ -93,21 +93,49 @@ A single-file React PWA (`app/src/App.jsx`).
 - **Share** — indicators, breaks and trends deep-link (`#pulse/cbr`,
   `#edge/…`, `#trends/…`) through the device's native share sheet, with a
   clipboard fallback on desktop.
-- **Daily notification** — optional. Pick a time of day and the days of the
-  week in Settings; the app refreshes the readings and posts one notification
-  carrying the briefing snapshot, at most once per day. Client-only by design
-  (there is no push server): it fires while the app is open, or on the next
-  open after the chosen time.
+- **Daily notification** — optional, and off unless asked for. Pick a time of
+  day and the days of the week in Settings; one notification arrives at that
+  time carrying the headline figures, **whether the app is open, backgrounded
+  or closed**, because it is sent by the VM rather than scheduled in the page.
+  Tapping it opens the app at the briefing. Works on Android and desktop
+  Chrome, Edge and Firefox; on iPhone once the app is on the home screen, which
+  the app explains rather than offering a toggle that cannot work.
+  See [the push service](#the-push-service--push_serverpy).
 - **Device clock** — the header date and time come from the viewing device,
   with the feed's as-of date shown alongside as "readings to …".
 - **Yours to tune** — theme (light/dark/system), text size, pinned indicators,
-  and the withholding-tax assumptions the ladder is computed with. Everything
-  persists in `localStorage` on the device; nothing is sent anywhere and no
-  account exists.
+  and the withholding-tax assumptions the ladder is computed with. All of it
+  persists in `localStorage` on the device, and no account exists.
 - The feed URL is a hard-coded constant, not a setting. Users personalise the
   presentation; the data lane stays locked.
 
 ---
+
+## The push service — `push_server.py`
+
+The one piece with a server behind it, and only because there is no other way:
+a timer inside a web page stops when the page does, so a schedule that lives in
+the browser can never reach a closed app. Web push can, and web push needs a
+sender.
+
+It runs on the same VM as the collector, in two modes — `--serve` for the small
+API the app subscribes to (localhost only, Caddy publishes it at
+`/pulse/push/`), and `--send-due` for the cron pass that does the sending.
+Subscriptions live in a JSON file at mode 600; still no database.
+
+- Each pass compares every subscription against **that device's own** local
+  time, so a phone in London and one in Nairobi each get their own morning.
+- One send per device per day. A briefing more than three hours late is
+  dropped rather than buzzing at bedtime.
+- A device that has uninstalled answers `410 Gone` and is removed on the spot.
+- `/subscribe` accepts endpoints belonging to the four real push services only.
+  Without that check the endpoint field would make this server a relay pointed
+  at whatever an attacker named.
+- The VAPID private key is generated on the VM by `--genkeys`, written at mode
+  600 and read from the environment. It is not in this repository, and the
+  command prints only the public half.
+
+Setup, systemd unit, Caddy block and cron line: [`DEPLOY.md`](DEPLOY.md) Part C.
 
 ## Running it
 
@@ -133,15 +161,17 @@ npx vercel --prod
 
 ## Tests
 
-Nine suites, ~200 assertions, run against the component mounted under Node —
-no browser needed: ladder arithmetic, feed merge, deep links, share,
-persistence and schema versioning, storage failure modes, mobile layouts at
-320/360/412 px, and an end-to-end pass against a live `data.json`.
+Thirteen suites, ~330 assertions. Most run against the component mounted under
+Node with no browser at all; the push work is checked three ways, because a
+notification that fails silently is worse than none.
 See [`tests/README.md`](tests/README.md).
 
 ```bash
 cd tests && npm ci
-node verify.js && node e2e.js   # …and the rest
+node verify.js && node notify.js          # …and the rest
+node sw_test.mjs                          # the built worker, mocked globals
+node push_browser.mjs                     # real Chromium, real push delivery
+python3 push_test.py                      # the server, timezones and all
 ```
 
 ## Rolling back
@@ -149,12 +179,23 @@ node verify.js && node e2e.js   # …and the rest
 - **Feed:** `cp public/data.json.last public/data.json` — under a second,
   Caddy serves whatever file is there.
 - **App:** `npx vercel rollback` — instant and atomic.
+- **Notifications:** `sudo systemctl stop kenya-pulse-push` — stops the
+  reminders and touches nothing else.
 
 ## Privacy
 
-Settings live on the device. No account, no analytics, no cookies, no data
-leaves the browser. The only network calls are the static data feed and the
-app's own assets.
+No account, no analytics, no cookies. Settings — theme, text size, pins, tax
+assumptions — stay in `localStorage` on the device and are never sent anywhere.
+
+With notifications **off**, which is the default, the only network calls are
+the static data feed and the app's own assets.
+
+Turning notifications **on** necessarily sends something: the push endpoint the
+browser mints for that device, the two keys that encrypt to it, the chosen time
+and days, and the timezone name. That is what a reminder to a closed app costs,
+and it is the whole of it — no account, no identifier, nothing naming the
+person. Turning the toggle off deletes the record from the server and releases
+the subscription in the browser.
 
 ---
 

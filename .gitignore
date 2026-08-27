@@ -9,6 +9,14 @@ run.log
 # your own figures
 manual.json
 
+# push service state — subscriber endpoints are other people's data, and the
+# store sits beside the code on the VM
+push-subscriptions.json
+push-subscriptions.lock
+push.log
+__pycache__/
+*.pyc
+
 # build artefacts
 node_modules/
 dist/
@@ -18,6 +26,19 @@ dev-dist/
 # secrets
 .env
 .env.*
+
+# what the test suites compile on the way past
+tests/compiled.js
+tests/notify.compiled.js
+tests/sh.js
+tests/m.js
+tests/p.js
+tests/s.js
+tests/t.js
+tests/e2e.mjs.js
+tests/ui.mjs.js
+tests/v4.mjs.js
+encrypted.data
 
 # noise
 .DS_Store

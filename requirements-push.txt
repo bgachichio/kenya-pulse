@@ -1,0 +1,10 @@
+# Push service only. The collector's own dependencies are in requirements.txt.
+# Pinned: an unpinned install is a different program every time it is deployed.
+fastapi==0.115.6
+uvicorn==0.34.0
+pywebpush==2.0.3
+# pulled in by the above, pinned so the set is reproducible
+starlette==0.41.3
+pydantic==2.13.4
+py-vapid==1.9.4
+cryptography==50.0.1

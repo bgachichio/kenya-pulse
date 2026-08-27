@@ -55,6 +55,84 @@ function linkTo(tab, id) {
   } catch { return ""; }
 }
 
+/* ---------------------------------------------------------------------------
+   Push.
+   The daily briefing is sent by the collector's VM, so it arrives whether the
+   app is open, backgrounded or closed. All this side does is hand over an
+   address to reach, a time, and the days that time applies to.
+
+   What leaves the device: the push endpoint the browser mints, the two keys
+   that encrypt to it, the chosen time and days, and the timezone name so the
+   server can work out when local morning is. No account, no identity.
+--------------------------------------------------------------------------- */
+const PUSH_API = "https://gachichio.org/pulse/push";
+
+/* VAPID keys arrive base64url; the subscribe call wants bytes. */
+function keyBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, ch => ch.charCodeAt(0));
+}
+
+/* Three answers, because they need three different sentences on screen.
+   iOS carries the whole push stack, but only once the app is on the home
+   screen — in a Safari tab PushManager simply is not there. */
+function pushCapability() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return "unsupported";
+  if (typeof Notification === "undefined" || !("serviceWorker" in navigator)) return "unsupported";
+  if (!("PushManager" in window)) {
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent || "");
+    const installed = window.navigator.standalone === true
+      || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    return ios && !installed ? "install-first" : "unsupported";
+  }
+  return "ok";
+}
+
+const tzName = () => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Nairobi"; }
+  catch { return "Africa/Nairobi"; }
+};
+
+async function pushSubscribe({ time, days }) {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const kr = await fetch(`${PUSH_API}/key`, { cache: "no-store" });
+      if (!kr.ok) throw new Error(`key ${kr.status}`);
+      const { key } = await kr.json();
+      if (!key) throw new Error("no key");
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true, applicationServerKey: keyBytes(key),
+      });
+    }
+    const r = await fetch(`${PUSH_API}/subscribe`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subscription: sub.toJSON(), time, days, tz: tzName() }),
+    });
+    if (!r.ok) throw new Error(`subscribe ${r.status}`);
+    return { ok: true, msg: "" };
+  } catch (e) {
+    return { ok: false, msg: `Could not schedule it — ${e.message}. Try again once you are online.` };
+  }
+}
+
+async function pushUnsubscribe() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    /* Tell the server first: a subscription it still holds would keep firing
+       at a device that has stopped listening. */
+    await fetch(`${PUSH_API}/unsubscribe`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    }).catch(() => { /* dropped below regardless */ });
+    await sub.unsubscribe();
+  } catch { /* nothing left to do on this device */ }
+}
+
 const SCHEMA = 1;
 const mem = {};
 const diag = { ok: null, error: null, writes: 0, lastWrite: null };
@@ -706,8 +784,7 @@ export default function KenyaPulse() {
   /* The scaffold's index.html may carry a stale title; the app states its own. */
   useEffect(() => { try { document.title = "Kenya Pulse"; } catch { /* not fatal */ } }, []);
 
-  /* The clock is the device's, not the feed's. One ticker drives the header
-     and the notification check. */
+  /* The clock is the device's, not the feed's. */
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000);
@@ -716,6 +793,8 @@ export default function KenyaPulse() {
 
   const [notePerm, setNotePerm] = useState(() =>
     typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+  const [noteState, setNoteState] = useState({ state: "idle", msg: "" });
+  const [pushCap] = useState(pushCapability);
 
   useEffect(() => {
     const id = tab === "trends" ? trendKey
@@ -816,49 +895,55 @@ export default function KenyaPulse() {
 
   const brief = useMemo(() => buildBrief(inds, ladder, data.breaks, data.asOf),
     [inds, ladder, data]);
-  const briefRef = useRef(brief);
-  useEffect(() => { briefRef.current = brief; }, [brief]);
 
-  /* Daily notification. Client-only by design: real web push needs a
-     subscription server, and this app deliberately has none. So the check runs
-     on the device clock while the app is open, and catches up on the next open
-     after the chosen time. One notification per day, at most. */
+  /* ---- Daily notification ----------------------------------------------
+     The schedule lives on the server, not in this page. A timer here only
+     runs while the app is open, which is precisely when a reminder is least
+     useful. The device registers a push subscription and its preferred time;
+     the sender on the VM wakes it. Turning the toggle off deletes the
+     subscription at both ends. */
   const enableNotify = async (v) => {
-    if (!v) { set("notifyOn", false); return; }
+    if (!v) {
+      set("notifyOn", false);
+      setNoteState({ state: "idle", msg: "" });
+      await pushUnsubscribe();
+      return;
+    }
+    /* Permission first, and before any await that is not the request itself:
+       Safari only honours the prompt inside the tap that asked for it. */
     if (typeof Notification === "undefined") return;
     let p = Notification.permission;
     if (p === "default") {
       try { p = await Notification.requestPermission(); } catch { p = "denied"; }
     }
     setNotePerm(p);
-    set("notifyOn", p === "granted");
+    if (p !== "granted") { set("notifyOn", false); return; }
+
+    setNoteState({ state: "busy", msg: "Scheduling…" });
+    const r = await pushSubscribe({ time: cfg.notifyTime, days: cfg.notifyDays });
+    if (r.ok) {
+      set("notifyOn", true);
+      setNoteState({ state: "ok", msg: "Scheduled. It arrives whether the app is open or not." });
+    } else {
+      set("notifyOn", false);
+      setNoteState({ state: "err", msg: r.msg });
+    }
   };
 
+  /* A change of time or days is only worth a round trip once the user has
+     stopped fiddling with the control. */
+  const noteSync = useRef(null);
   useEffect(() => {
     if (!cfg.notifyOn) return;
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    const dayOk = (cfg.notifyDays || []).includes(now.getDay());
-    const [h, m] = (cfg.notifyTime || "08:00").split(":").map(Number);
-    const due = now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
-    const key = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
-    if (!dayOk || !due || store.get("kp.notified", "") === key) return;
-    store.set("kp.notified", key);            // claim the day before the async work
-    (async () => {
-      await pull(true);                       // refresh first, notify on fresh figures
-      await new Promise(r => setTimeout(r, 400));
-      const body = briefRef.current.split("\n").slice(1, 3).join("\n");
-      try {
-        const reg = await navigator.serviceWorker?.getRegistration?.();
-        if (reg?.showNotification) {
-          reg.showNotification("Kenya Pulse", { body, icon: "/icon-192.png", tag: "kp-daily" });
-          return;
-        }
-      } catch { /* fall through to the plain API */ }
-      try { new Notification("Kenya Pulse", { body, icon: "/icon-192.png", tag: "kp-daily" }); }
-      catch { /* the browser said yes to permission but no to the call */ }
-    })();
-    /* eslint-disable-next-line */
-  }, [now, cfg.notifyOn, cfg.notifyTime, cfg.notifyDays]);
+    clearTimeout(noteSync.current);
+    noteSync.current = setTimeout(async () => {
+      const r = await pushSubscribe({ time: cfg.notifyTime, days: cfg.notifyDays });
+      setNoteState(r.ok
+        ? { state: "ok", msg: "Schedule updated." }
+        : { state: "err", msg: r.msg });
+    }, 900);
+    return () => clearTimeout(noteSync.current);
+  }, [cfg.notifyOn, cfg.notifyTime, cfg.notifyDays]);
 
   const copy = async (t) => {
     try { await navigator.clipboard.writeText(t); }
@@ -1631,8 +1716,9 @@ export default function KenyaPulse() {
 
             <Section title="On this device" c={c} i={4} pad={narrow ? 16 : 18}>
               <div style={{ fontSize: ".85em", color: c.dim, lineHeight: 1.5 }}>
-                Your settings live on this device only. Nothing is sent anywhere, and no
-                account is needed.
+                Your settings live on this device only, and no account is needed. Nothing
+                is sent anywhere unless you switch the daily notification on, which needs
+                an address to send to.
               </div>
               {store.report().ok === false && (
                 <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
@@ -1696,15 +1782,22 @@ export default function KenyaPulse() {
             </Row>
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Daily notification</div>
-            {typeof Notification === "undefined" ? (
+            {pushCap === "install-first" ? (
               <div style={{ fontSize: ".84em", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
-                This browser cannot show notifications. On an iPhone, add the app to the
-                home screen from Safari's share menu first.
+                Add Kenya Pulse to your home screen first — the share button in Safari,
+                then <strong style={{ color: c.dim, fontWeight: 600 }}>Add to Home Screen</strong>.
+                Open it from there and this setting appears. iPhones only deliver
+                notifications to an installed app.
+              </div>
+            ) : pushCap === "unsupported" ? (
+              <div style={{ fontSize: ".84em", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
+                This browser cannot receive notifications. Chrome, Edge and Firefox can, as
+                can an iPhone once the app is on the home screen.
               </div>
             ) : (
               <>
                 <Row label="Daily briefing"
-                  hint="Refreshes the readings and sends one notification at your chosen time, on the days you choose. It fires while the app is open, or on the next open after that time."
+                  hint="One notification at your chosen time, on the days you choose, sent from the server — so it arrives whether the app is open or closed. Tap it to open the briefing."
                   c={c}>
                   <Toggle on={cfg.notifyOn} onChange={enableNotify} c={c} />
                 </Row>
@@ -1712,6 +1805,13 @@ export default function KenyaPulse() {
                   <div style={{ fontSize: ".84em", color: c.bad, marginBottom: 24 }}>
                     Notifications are blocked for this site. Allow them in the browser's
                     site settings, then switch this on again.
+                  </div>
+                )}
+                {noteState.msg && (
+                  <div style={{ fontSize: ".84em", marginBottom: 24, lineHeight: 1.5,
+                    color: noteState.state === "err" ? c.bad
+                      : noteState.state === "ok" ? c.good : c.dim }}>
+                    {noteState.msg}
                   </div>
                 )}
                 {cfg.notifyOn && (
@@ -1795,8 +1895,10 @@ export default function KenyaPulse() {
             </Row>
 
             <div style={{ fontSize: ".78em", color: c.faint, marginTop: 22, lineHeight: 1.6 }}>
-              Settings are stored on this device only. Nothing is sent anywhere, and no
-              account is needed.
+              Settings are stored on this device only, and no account is needed. The daily
+              notification is the one exception: switching it on sends this device's
+              notification address, your chosen time and days, and your timezone to the
+              server that does the sending. Switching it off deletes them.
             </div>
           </div>
         </div>

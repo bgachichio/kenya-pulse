@@ -179,6 +179,179 @@ session.
 
 ---
 
+# PART C · The daily notification
+
+New in this version, and the only part of Kenya Pulse with a server behind it.
+
+**Why.** A timer inside the page only runs while the page is open, which is the
+one moment a reminder is worthless. Web push is the only way a browser hears
+anything while it is closed, and web push needs a sender. `push_server.py` is
+that sender: an API the app subscribes to, and a cron pass that does the
+sending. It runs beside the collector on the same VM.
+
+**What a device hands over:** the push endpoint the browser mints, the two keys
+that encrypt to it, a time, a set of days, and a timezone name. No account, no
+identifier, nothing naming the person. Switching the toggle off deletes the
+record at both ends.
+
+## C1 · Ship the files
+
+```bash
+V="bgkaranja@34.35.177.164"; K="-i $HOME/.ssh/gcp_pulse"
+scp $K push_server.py requirements-push.txt $V:~/kenya-pulse/
+ssh $K $V "cd ~/kenya-pulse && pip3 install --user -r requirements-push.txt"
+```
+
+**You should see** the pinned versions install, `pywebpush` among them.
+
+## C2 · Make the keys — once, and never in the repo
+
+VAPID is how a push service knows the sender is you. The private half is a
+credential: it never enters source, a prompt, or a screenshot.
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && python3 push_server.py --genkeys ~/secrets/kenya-pulse-push.env"
+```
+
+**You should see** one line: `Wrote /home/…/secrets/kenya-pulse-push.env (mode
+600)` and the **public** key. Only the public half is ever printed — the app
+fetches it at runtime, so nothing needs rebuilding when it rotates.
+
+Edit `KP_VAPID_SUBJECT` in that file if you want a different contact address;
+push services use it to reach you when something is wrong.
+
+## C3 · Run the API under systemd
+
+```bash
+ssh $K $V "sudo tee /etc/systemd/system/kenya-pulse-push.service > /dev/null" <<'UNIT'
+[Unit]
+Description=Kenya Pulse push API
+After=network-online.target
+
+[Service]
+User=bgkaranja
+WorkingDirectory=/home/bgkaranja/kenya-pulse
+EnvironmentFile=/home/bgkaranja/secrets/kenya-pulse-push.env
+ExecStart=/usr/bin/python3 push_server.py --serve --port 8100
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/bgkaranja/kenya-pulse
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+ssh $K $V "sudo systemctl daemon-reload && sudo systemctl enable --now kenya-pulse-push"
+ssh $K $V "curl -s http://127.0.0.1:8100/health"
+```
+
+**You should see** `{"ok":true,"subscriptions":0}`.
+
+It binds `127.0.0.1` only. Caddy is the single thing on this box that faces the
+internet — check with `sudo ss -tulpn | grep 8100` and expect `127.0.0.1:8100`.
+
+## C4 · Publish it through Caddy
+
+In the `gachichio.org` block:
+
+```caddy
+handle /pulse/push/* {
+    uri strip_prefix /pulse/push
+    reverse_proxy 127.0.0.1:8100
+}
+```
+
+```bash
+ssh $K $V "sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy"
+curl -s https://gachichio.org/pulse/push/health
+```
+
+**You should see** the same `{"ok":true,…}`, now over TLS.
+
+## C5 · Send on a schedule
+
+```bash
+ssh $K $V "crontab -l | { cat; echo '*/15 * * * * cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && /usr/bin/python3 push_server.py --send-due >> ~/push.log 2>&1'; } | crontab -"
+```
+
+Every fifteen minutes it checks each subscription against **that device's own**
+local time and sends only where the chosen minute has arrived. A device is sent
+to at most once a day. A briefing more than three hours late is dropped rather
+than buzzing a phone at bedtime about this morning.
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && set -a && . ~/secrets/kenya-pulse-push.env && set +a && python3 push_server.py --send-due"
+```
+
+**You should see** `{"sent": 0, "failed": 0, "dropped": 0, "skipped": 0}` before
+anyone has subscribed.
+
+## C6 · Prove it on a real phone
+
+The one part no test on a build machine can do. Ten minutes, both handsets.
+
+**Android (Pixel, Chrome):**
+
+| Step | Expect |
+|---|---|
+| Open the app, Settings → Daily briefing → on | The browser asks; allow it |
+| | The line "Scheduled. It arrives whether the app is open or not." |
+| `ssh $V "python3 push_server.py --list"` | one subscription, your time and days |
+| Set the time to two minutes ahead, **close the app entirely** (swipe it away) | |
+| Wait for the cron pass, or run `--send-due` by hand | The notification arrives with the app closed |
+| Tap it | The app opens on the **Edge** tab, at the briefing |
+| Toggle off, then `--list` | zero subscriptions |
+
+**iPhone (Safari, iOS 16.4 or newer):**
+
+| Step | Expect |
+|---|---|
+| Open the app in Safari, Settings → Daily notification | "Add Kenya Pulse to your home screen first" |
+| Share → **Add to Home Screen**, then open it from the icon | The toggle now appears |
+| Turn it on | iOS asks; allow it |
+| Set a time two minutes ahead and **close the app** | |
+| Run `--send-due` | The notification arrives |
+| Tap it | The installed app opens on the briefing |
+
+iOS delivers web push **only** to a home-screen app — in a Safari tab there is
+no push at all, which is why the app says so rather than offering a toggle that
+could not work. iOS may also delay a push by a few minutes when the phone is
+idle; that is Apple's power management, not the schedule.
+
+## C7 · Rollback
+
+The push service is separate from the app and the feed. Stopping it stops
+notifications and nothing else:
+
+```bash
+ssh $K $V "sudo systemctl stop kenya-pulse-push"     # API down, app unaffected
+ssh $K $V "crontab -l | grep -v send-due | crontab -" # stop sending
+```
+
+Subscriptions survive in `~/kenya-pulse/push-subscriptions.json` (mode 600).
+Deleting that file unsubscribes everyone; they would each have to switch the
+toggle on again.
+
+## C8 · Living with it
+
+```bash
+ssh $K $V "python3 push_server.py --list"      # who is subscribed, and when
+ssh $K $V "tail -20 ~/push.log"                # what each pass did
+```
+
+A device that has uninstalled the app answers `410 Gone`; the sender drops it on
+the spot. Three failures of any other kind drop it too. The store needs no
+tending.
+
+---
+
 # Living with it
 
 - **Most weeks, nothing.** Cron runs on the 1st and 16th; Telegram speaks when
