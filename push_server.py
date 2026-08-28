@@ -435,7 +435,13 @@ def main() -> int:
         print(json.dumps(send_due(force=True)))
         return 0
     if a.send_due:
-        print(json.dumps(send_due()))
+        tally = send_due()
+        # Cron calls this 288 times a day. A line each time is a file that
+        # grows for ever to say "nothing happened". Speak only when something
+        # did — --why reports the current state on demand.
+        if tally["sent"] or tally["failed"] or tally["dropped"]:
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            print(json.dumps({"at": stamp, **tally}))
         return 0
     if a.serve:
         import uvicorn

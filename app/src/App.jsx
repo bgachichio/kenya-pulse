@@ -162,7 +162,7 @@ async function pushUnsubscribe() {
 
 const SCHEMA = 1;
 const mem = {};
-const diag = { ok: null, error: null, writes: 0, lastWrite: null };
+const diag = { ok: null, error: null };
 
 const store = {
   probe() {
@@ -186,7 +186,7 @@ const store = {
       if (v === null) return k in mem ? mem[k] : fb;
       const parsed = JSON.parse(v);
       if (parsed && typeof parsed === "object" && parsed.__v && parsed.__v !== SCHEMA) {
-        return { ...fb, ...migrate(parsed, parsed.__v) };
+        return { ...fb, ...migrate(parsed) };
       }
       return parsed;
     } catch {
@@ -202,7 +202,6 @@ const store = {
       const back = window.localStorage.getItem(k);          // confirm, do not assume
       if (back === null) throw new Error("write vanished");
       diag.ok = true; diag.error = null;
-      diag.writes += 1; diag.lastWrite = new Date().toISOString().slice(11, 19);
       return true;
     } catch (e) {
       diag.ok = false;
@@ -211,18 +210,9 @@ const store = {
       return false;
     }
   },
-  report() {
-    const keys = [];
-    try {
-      for (const k of ["kp.cfg", "kp.data"]) {
-        const v = window.localStorage.getItem(k);
-        if (v !== null) keys.push({ key: k, bytes: v.length });
-      }
-    } catch { /* unreadable */ }
-    return { ...diag, keys,
-      origin: typeof window !== "undefined" && window.location
-        ? window.location.origin : "unknown" };
-  },
+  /* Only whether saving works. The panel that listed sizes and origins was
+     removed; keeping the code that fed it was keeping a shape, not a use. */
+  report() { return { ok: diag.ok, error: diag.error }; },
 };
 
 /* Older layouts are upgraded rather than discarded. Nothing here yet, but the
@@ -609,12 +599,6 @@ const SOURCES = [
 =========================================================================== */
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
 
-function slope(h) {
-  const n = h.length; if (n < 3) return 0;
-  const xs = h.map((_, i) => i), my = mean(h), mx = mean(xs);
-  const den = xs.reduce((s, x) => s + (x - mx) ** 2, 0);
-  return den === 0 ? 0 : xs.reduce((s, x, i) => s + (x - mx) * (h[i] - my), 0) / den;
-}
 function stateOf(i) {
   if (i.band) { const [lo, hi] = i.band; if (i.value > hi || i.value < lo) return "stress"; }
   if (i.prior == null || i.dir === 0) return "steady";
@@ -889,9 +873,7 @@ export default function KenyaPulse() {
     /* eslint-disable-next-line */
   }, []);
 
-  const inds = useMemo(() => data.indicators.map(i => (
-    { ...i, state: stateOf(i), trend: slope(i.hist.slice(-6)) }
-  )), [data]);
+  const inds = useMemo(() => data.indicators.map(i => ({ ...i, state: stateOf(i) })), [data]);
 
   /* the ladder recomputes live when tax assumptions change */
   const ladder = useMemo(() => {

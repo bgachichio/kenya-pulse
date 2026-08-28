@@ -398,6 +398,45 @@ Subscriptions survive in `~/kenya-pulse/push-subscriptions.json` (mode 600).
 Deleting that file unsubscribes everyone; they would each have to switch the
 toggle on again.
 
+## C8 · Starting the schedule afresh
+
+To clear every stored schedule and begin again — the store is one file, so
+this is one command:
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --forget ''"
+ssh $K $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --why"
+```
+
+`--forget ''` matches every endpoint. Expect `Nothing is subscribed`. Each
+device then switches its toggle off and on again to re-register; nothing else
+is needed, and no key changes.
+
+To drop one device rather than all, give it a fragment of its endpoint from
+`--why`:
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --forget 5Xc_15p2"
+```
+
+## C9 · What it costs
+
+Measured, not estimated:
+
+| | |
+|---|---|
+| One `--send-due` pass | ~300 ms, 49 MB peak, freed on exit |
+| 288 passes a day (`*/5`) | ~86 s of CPU — 0.10% of one core |
+| The API under systemd | one idle uvicorn worker, resident |
+| `push-subscriptions.json` | a few hundred bytes per device |
+| `push.log` | only written when something is sent or fails |
+
+The sender is a process that starts, reads a small file and exits — it holds
+nothing between runs. The log stays quiet deliberately: a line every five
+minutes saying "nothing happened" is a file that grows for ever and tells you
+nothing, so `--send-due` prints only when it sent, failed or dropped. Ask
+`--why` for the current state instead.
+
 ## C8 · Living with it
 
 ```bash

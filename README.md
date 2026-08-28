@@ -134,6 +134,14 @@ Subscriptions live in a JSON file at mode 600; still no database.
 - The VAPID private key is generated on the VM by `--genkeys`, written at mode
   600 and read from the environment. It is not in this repository, and the
   command prints only the public half.
+- `--why` explains, per device, whether it is due and if not why not;
+  `--test-send` fires immediately without consuming the day's real send;
+  `--forget` drops a device that re-registered and left an old address behind.
+
+**What it costs.** One pass is ~300 ms and 49 MB, freed on exit; 288 passes a
+day is 0.10% of one core. The store is a few hundred bytes per device, and the
+log is written only when something is sent or fails. Nothing is held between
+runs, and no database is involved — here or anywhere else in the project.
 
 Setup, systemd unit, Caddy block and cron line: [`DEPLOY.md`](DEPLOY.md) Part C.
 
