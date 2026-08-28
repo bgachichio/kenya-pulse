@@ -199,11 +199,15 @@ record at both ends.
 Take the files from a clean checkout rather than a download folder — there is
 no ambiguity about which version you are shipping.
 
+Keep the checkout somewhere that survives a reboot — `/tmp` is cleared, and a
+missing clone makes every `scp` below fail silently enough to be confusing.
+
 ```bash
-rm -rf /tmp/kp && git clone --depth 1 https://github.com/bgachichio/kenya-pulse /tmp/kp
+SRC=~/kenya-pulse-src
+[ -d $SRC ] && git -C $SRC pull -q || git clone --depth 1 https://github.com/bgachichio/kenya-pulse $SRC
 
 V="bgkaranja@34.35.177.164"; K="-i $HOME/.ssh/gcp_pulse"
-scp $K /tmp/kp/push_server.py /tmp/kp/requirements-push.txt $V:~/kenya-pulse/
+scp $K $SRC/push_server.py $SRC/requirements-push.txt $V:~/kenya-pulse/
 ssh $K $V "ls -l ~/kenya-pulse/push_server.py"
 ```
 
