@@ -1,16 +1,18 @@
-const babel=require('/home/claude/node_modules/@babel/core'),fs=require('fs');
+// the app keeps a 30s clock interval; unref it so a finished suite exits
+{const _si=setInterval;global.setInterval=(...a)=>{const t=_si(...a);t&&t.unref&&t.unref();return t;};}
+const babel=require('@babel/core'),fs=require('fs');
 const DISK={}; let W=412; let fetched=[];
 global.window={localStorage:{getItem:k=>k in DISK?DISK[k]:null,setItem:(k,v)=>{DISK[k]=String(v)},removeItem:k=>{delete DISK[k]}},
  matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}}),
  addEventListener(){},removeEventListener(){},get innerWidth(){return W},
  location:{origin:'https://kenya-pulse-app.vercel.app'}};
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
-global.document={createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
+global.document = { documentElement: { classList: { toggle() {} }, dataset: {}, style: {} },createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
  body:{appendChild(){},removeChild(){}},execCommand:()=>true};
 global.fetch=async(u)=>{fetched.push(u);return{ok:true,status:200,json:async()=>({asOf:'2026-08-19',signals:[]})}};
-fs.writeFileSync('sh.js',babel.transformSync(fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8'),
- {presets:[['/home/claude/node_modules/@babel/preset-env',{targets:{node:'current'}}],
-  ['/home/claude/node_modules/@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
+fs.writeFileSync('sh.js',babel.transformSync(fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8'),
+ {presets:[['@babel/preset-env',{targets:{node:'current'},modules:'commonjs'}],
+  ['@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
 const React=require('react'),TR=require('react-test-renderer');
 function walk(n,fn){if(!n||typeof n!=='object')return;fn(n);(n.children||[]).forEach(c=>walk(c,fn));}
 function txt(n){let s='';walk(n,x=>(x.children||[]).forEach(c=>{if(typeof c==='string')s+=c}));return s;}
@@ -51,7 +53,7 @@ ok('theme control kept', t.includes('Same as device'));
 ok('tax sliders kept', t.includes('Money market funds'));
 
 console.log('\n── NO "CLAUDE" ANYWHERE');
-const src=fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8');
+const src=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8');
 ok('not in source', !/claude/i.test(src));
 TR.act(()=>B(r).find(b=>b.props['aria-label']==='Close').props.onClick());
 let all='';

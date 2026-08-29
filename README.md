@@ -109,6 +109,14 @@ A single-file React PWA (`app/src/App.jsx`).
 - The feed URL is a hard-coded constant, not a setting. Users personalise the
   presentation; the data lane stays locked.
 
+**Design.** Every colour, size, radius and easing resolves to a token declared
+in `app/src/index.css`; the component file holds no hex value and no `px` font
+size. Light and dark are the same token names with different values, and the
+class on `<html>` decides which is live. Conformance against `design.md` v1.1,
+including the two exceptions taken and why, is written up in
+[`DESIGN-COMPLIANCE.md`](DESIGN-COMPLIANCE.md) and enforced by `tests/ui.js`
+and `tests/visual-check.mjs`.
+
 ---
 
 ## The push service — `push_server.py`
@@ -169,9 +177,10 @@ npx vercel --prod
 
 ## Tests
 
-Thirteen suites, ~330 assertions. Most run against the component mounted under
+Fourteen suites, 386 assertions. Most run against the component mounted under
 Node with no browser at all; the push work is checked three ways, because a
-notification that fails silently is worse than none.
+notification that fails silently is worse than none, and the design tokens are
+read back out of a real browser rather than trusted.
 See [`tests/README.md`](tests/README.md).
 
 ```bash
@@ -179,7 +188,8 @@ cd tests && npm ci
 node verify.js && node notify.js          # …and the rest
 node sw_test.mjs                          # the built worker, mocked globals
 node push_browser.mjs                     # real Chromium, real push delivery
-python3 push_test.py                      # the server, timezones and all
+node visual-check.mjs                     # computed styles, light, dark, xlarge
+../.venv-push/bin/python push_test.py     # the server, timezones and all
 ```
 
 ## Rolling back

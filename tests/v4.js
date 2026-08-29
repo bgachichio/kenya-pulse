@@ -1,4 +1,6 @@
-const babel=require('/home/claude/node_modules/@babel/core'),fs=require('fs');
+// the app keeps a 30s clock interval; unref it so a finished suite exits
+{const _si=setInterval;global.setInterval=(...a)=>{const t=_si(...a);t&&t.unref&&t.unref();return t;};}
+const babel=require('@babel/core'),fs=require('fs');
 const DISK={}; let W=412, HASH='';
 global.window={localStorage:{getItem:k=>k in DISK?DISK[k]:null,setItem:(k,v)=>{DISK[k]=String(v)},removeItem:k=>{delete DISK[k]}},
  matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}}),
@@ -9,12 +11,12 @@ global.window={localStorage:{getItem:k=>k in DISK?DISK[k]:null,setItem:(k,v)=>{D
 // is silently swallowed. defineProperty replaces it properly.
 Object.defineProperty(globalThis,'navigator',{configurable:true,
   value:{clipboard:{writeText:async(t)=>{global.__copied=t}}}});
-global.document={createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
+global.document = { documentElement: { classList: { toggle() {} }, dataset: {}, style: {} },createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
  body:{appendChild(){},removeChild(){}},execCommand:()=>true};
 global.fetch=async()=>({ok:true,status:200,json:async()=>({})});
-fs.writeFileSync('v4.mjs.js',babel.transformSync(fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8'),
- {presets:[['/home/claude/node_modules/@babel/preset-env',{targets:{node:'current'}}],
-  ['/home/claude/node_modules/@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
+fs.writeFileSync('v4.mjs.js',babel.transformSync(fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8'),
+ {presets:[['@babel/preset-env',{targets:{node:'current'},modules:'commonjs'}],
+  ['@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
 const React=require('react'),TR=require('react-test-renderer');
 function walk(n,fn){if(!n||typeof n!=='object')return;fn(n);(n.children||[]).forEach(c=>walk(c,fn));}
 function txt(n){let s='';walk(n,x=>(x.children||[]).forEach(c=>{if(typeof c==='string')s+=c}));return s;}
@@ -32,7 +34,7 @@ let t=txt(r.toJSON());
 ok('no "Pulse score" eyebrow', !t.includes('Pulse score'));
 ok('no verdict words', !/EXPANDING|UNDER STRAIN/.test(t), (t.match(/EXPANDING|UNDER STRAIN/)||[])[0]||'');
 ok('no "of 100"', !t.includes('of 100'));
-const src=fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8');
+const src=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8');
 ok('gone from source entirely', !/verdict|pulse >=/.test(src));
 
 console.log('\n── HERO IS THE ACTIONABLE FACT');
@@ -55,7 +57,7 @@ ok('why-it-matters rendered', t.includes('money market is calm'));
 ok('current commentary still below it', t.includes('Sitting almost exactly on the policy rate'));
 ok('plain definition present', t.includes('banks actually charge each other'), '');
 let covered=0, missing=[];
-const SRC=fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8');
+const SRC=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8');
 // core inflation and private credit growth were removed — no automatic source exists
 for(const id of ['cbr','kesonia','tbill','tbill182','tbill364','discount','inflation','lending',
   'deposit','savings','npl','kes_usd','kes_eur','kes_gbp','cover','reserves','cab','gdp','pmi',

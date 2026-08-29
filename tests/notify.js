@@ -63,7 +63,7 @@ class N {
 }
 global.Notification = N;
 
-global.document = { title: '', createElement: () => ({ style: {}, select() {}, remove() {}, appendChild() {} }),
+global.document = { documentElement: { classList: { toggle() {} }, dataset: {}, style: {} }, title: '', createElement: () => ({ style: {}, select() {}, remove() {}, appendChild() {} }),
   body: { appendChild() {}, removeChild() {} }, execCommand: () => true };
 
 global.fetch = async (url, init) => {

@@ -1,6 +1,7 @@
 # Tests
 
-Thirteen suites, ~330 assertions.
+Fourteen suites, 386 assertions. All of them exit on their own; a
+non-zero exit code means a failure.
 
 ```bash
 npm install
@@ -14,8 +15,15 @@ node sw_test.mjs
 # real Chromium: registers the worker, delivers a push, reads it back
 cd ../app && npm run build && cd ../tests && node push_browser.mjs
 
-# the push server: due-time maths, the endpoint allowlist, VAPID signing
-pip install -r ../requirements-push.txt && python3 push_test.py
+# design.md v1.1 conformance: renders the built app in Chromium and reads the
+# computed styles back, in light, in dark and at the largest text size
+cd ../app && npm run build && cd ../tests && node visual-check.mjs
+
+# the push server: due-time maths, the endpoint allowlist, VAPID signing.
+# requirements-test.txt holds the test-only extras, kept out of the deploy set.
+python3 -m venv ../.venv-push
+../.venv-push/bin/pip install -r ../requirements-push.txt -r requirements-test.txt
+../.venv-push/bin/python push_test.py
 ```
 
 | Suite | Covers |
@@ -32,7 +40,11 @@ pip install -r ../requirements-push.txt && python3 push_test.py
 | notify | Subscribing, re-registering on a change, unsubscribing, a refused permission, an unreachable server, and what an iPhone in a Safari tab is told |
 | sw_test | The built worker: push → notification, tap → focus or open, a malformed payload, an off-site link, subscription rotation |
 | push_browser | Chromium end to end: the worker registers, a push delivered through DevTools raises the notification, the app still opens offline |
+| visual-check | The built app in real Chromium: role tokens resolve, Courier Prime on the display sizes and Inter on the UI, the 20px card shape, dark surfaces, and the text-size toggle actually moving `rem` |
 | push_test | The server: due times across timezones and days, one send per day, the SSRF allowlist, dead-device pruning, real VAPID signing |
+
+The app keeps a 30-second clock interval. Each Node suite unrefs it in its
+preamble so a finished run exits instead of idling on a live timer.
 
 `live.json` is genuine collector output, used by `e2e.js` and `push_test.py`.
 

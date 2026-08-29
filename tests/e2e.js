@@ -1,4 +1,6 @@
-const babel=require('/home/claude/node_modules/@babel/core'),fs=require('fs');
+// the app keeps a 30s clock interval; unref it so a finished suite exits
+{const _si=setInterval;global.setInterval=(...a)=>{const t=_si(...a);t&&t.unref&&t.unref();return t;};}
+const babel=require('@babel/core'),fs=require('fs');
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async t=>{global.__c=t}}}});
 const LIVE=JSON.parse(fs.readFileSync('live.json','utf8'));
 const DISK={}; let HASH='', FETCHED=[], FAIL=false;
@@ -7,14 +9,14 @@ global.window={localStorage:{getItem:k=>k in DISK?DISK[k]:null,setItem:(k,v)=>{D
  addEventListener(){},removeEventListener(){},innerWidth:412,
  get location(){return {origin:'https://kenya-pulse-app.vercel.app',pathname:'/',get hash(){return HASH}}},
  history:{replaceState:(a,b,h)=>{HASH=h}}};
-global.document={createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
+global.document = { documentElement: { classList: { toggle() {} }, dataset: {}, style: {} },createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
  body:{appendChild(){},removeChild(){}},execCommand:()=>true};
 global.fetch=async(u)=>{FETCHED.push(u);
   if(FAIL) throw new Error('Failed to fetch');
   return {ok:true,status:200,json:async()=>LIVE};};
-fs.writeFileSync('e2e.mjs.js',babel.transformSync(fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8'),
- {presets:[['/home/claude/node_modules/@babel/preset-env',{targets:{node:'current'}}],
-  ['/home/claude/node_modules/@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
+fs.writeFileSync('e2e.mjs.js',babel.transformSync(fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8'),
+ {presets:[['@babel/preset-env',{targets:{node:'current'},modules:'commonjs'}],
+  ['@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
 const React=require('react'),TR=require('react-test-renderer');
 function walk(n,f){if(!n||typeof n!=='object')return;f(n);(n.children||[]).forEach(c=>walk(c,f));}
 function txt(n){let s='';walk(n,x=>(x.children||[]).forEach(c=>{if(typeof c==='string')s+=c}));return s;}

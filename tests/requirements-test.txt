@@ -1,0 +1,4 @@
+# Test-only. Not installed on the server: keep the production set in
+# ../requirements-push.txt free of anything the running service does not import.
+# starlette's TestClient is built on httpx, so push_test.py needs it.
+httpx==0.28.1

@@ -1,4 +1,6 @@
-const babel=require('/home/claude/node_modules/@babel/core'),fs=require('fs');
+// the app keeps a 30s clock interval; unref it so a finished suite exits
+{const _si=setInterval;global.setInterval=(...a)=>{const t=_si(...a);t&&t.unref&&t.unref();return t;};}
+const babel=require('@babel/core'),fs=require('fs');
 // localStorage that SURVIVES remounts, like a real browser
 const DISK={};
 let quotaFail=false;
@@ -13,12 +15,12 @@ global.window={
   location:{origin:'https://kenya-pulse-app.vercel.app'},
 };
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
-global.document={createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
+global.document = { documentElement: { classList: { toggle() {} }, dataset: {}, style: {} },createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
   body:{appendChild(){},removeChild(){}},execCommand:()=>true};
 global.fetch=async()=>({ok:true,status:200,json:async()=>({})});
-fs.writeFileSync('p.js',babel.transformSync(fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8'),
- {presets:[['/home/claude/node_modules/@babel/preset-env',{targets:{node:'current'}}],
-   ['/home/claude/node_modules/@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
+fs.writeFileSync('p.js',babel.transformSync(fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8'),
+ {presets:[['@babel/preset-env',{targets:{node:'current'},modules:'commonjs'}],
+   ['@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
 const React=require('react'),TR=require('react-test-renderer');
 const App=require('./p.js').default;
 function walk(n,fn){if(!n||typeof n!=='object')return;fn(n);(n.children||[]).forEach(c=>walk(c,fn));}
@@ -52,7 +54,7 @@ const saved1=DISK['kp.cfg']?JSON.parse(DISK['kp.cfg']):null;
 console.log('   kp.cfg =', saved1?JSON.stringify({theme:saved1.theme,size:saved1.size,taxMmf:saved1.taxMmf}):'MISSING');
 ok('cfg written to disk', !!saved1);
 ok('theme saved', saved1 && saved1.theme==='dark', saved1?saved1.theme:'');
-ok('size saved', saved1 && saved1.size==='xl', saved1?saved1.size:'');
+ok('size saved', saved1 && saved1.size==='xlarge', saved1?saved1.size:'');
 ok('feed is not a stored setting any more', saved1 && !('feed' in saved1),
    saved1 && saved1.feed ? 'still present' : '');
 ok('tax saved', saved1 && saved1.taxMmf===7, saved1?String(saved1.taxMmf):'');
@@ -73,7 +75,7 @@ ok('slider value attribute restored', r2ranges[1] && r2ranges[1].props.value===7
    r2ranges[1]?String(r2ranges[1].props.value):'');
 const disk2=JSON.parse(DISK['kp.cfg']);
 ok('theme still dark on disk', disk2.theme==='dark', disk2.theme);
-ok('size still xl on disk', disk2.size==='xl', disk2.size);
+ok('size still xl on disk', disk2.size==='xlarge', disk2.size);
 
 console.log('\n── SESSION 3: does mount OVERWRITE saved settings?');
 const before=JSON.stringify(JSON.parse(DISK['kp.cfg']));

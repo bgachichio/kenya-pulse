@@ -22,7 +22,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 
    Note that browser storage is per ORIGIN. Settings saved on one hostname are
    invisible on another, which is the usual reason a deployed app appears to
-   "forget" — two URLs for the same app, each with its own drawer.
+   "forget" - two URLs for the same app, each with its own drawer.
 --------------------------------------------------------------------------- */
 /* The feed is fixed. It is one file on one server and it is not going to move,
    so making it a setting only invited people to break it. */
@@ -76,7 +76,7 @@ function keyBytes(b64) {
 
 /* Three answers, because they need three different sentences on screen.
    iOS carries the whole push stack, but only once the app is on the home
-   screen — in a Safari tab PushManager simply is not there. */
+   screen - in a Safari tab PushManager simply is not there. */
 function pushCapability() {
   if (typeof window === "undefined" || typeof navigator === "undefined") return "unsupported";
   if (typeof Notification === "undefined" || !("serviceWorker" in navigator)) return "unsupported";
@@ -114,7 +114,7 @@ async function pushSubscribe({ time, days }) {
     if (!r.ok) throw new Error(`subscribe ${r.status}`);
     return { ok: true, msg: "" };
   } catch (e) {
-    return { ok: false, msg: `Could not schedule it — ${e.message}. Try again once you are online.` };
+    return { ok: false, msg: `Could not schedule it - ${e.message}. Try again once you are online.` };
   }
 }
 
@@ -136,7 +136,7 @@ function nextBriefing(time, days, from) {
 }
 
 function whenPhrase(next, from) {
-  if (!next) return "No days selected — nothing will be sent.";
+  if (!next) return "No days selected - nothing will be sent.";
   const clock = next.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const days = Math.round((new Date(next).setHours(0, 0, 0, 0)
     - new Date(from).setHours(0, 0, 0, 0)) / 86400000);
@@ -215,49 +215,74 @@ const store = {
   report() { return { ok: diag.ok, error: diag.error }; },
 };
 
+/* design.md 12 names ui.theme and ui.fontScale, and the script in index.html
+   reads them before the first stylesheet. They are therefore the truth for
+   those two settings - if React seeded them from its own store instead, the
+   two could drift and the pre-paint theme would be wrong. */
+function uiPref(key, allowed, fallback) {
+  try {
+    const v = window.localStorage.getItem(key);
+    return allowed.includes(v) ? v : fallback;
+  } catch { return fallback; }
+}
+
 /* Older layouts are upgraded rather than discarded. Nothing here yet, but the
    hook exists so the first schema change does not cost anyone their settings. */
 function migrate(old) { return old; }
 
-/* Palette follows Apple's grouped-list conventions — layered greys, hairline
-   separators, a label hierarchy of three weights — but keeps the house green as
-   the tint rather than borrowing system blue. The structure is theirs, the
-   colour is yours. */
-const THEME = {
-  light: {
-    bg: "#F2F2F7",                       // grouped background
-    card: "#FFFFFF",                     // raised content
-    line: "rgba(60,60,67,0.13)",         // hairline separator
-    ink: "#0B0B0C",                      // primary label
-    dim: "rgba(60,60,67,0.62)",          // secondary label
-    faint: "rgba(60,60,67,0.32)",        // tertiary label
-    good: "#1E7A55", warn: "#B0642A", bad: "#C0392E", cool: "#237352",
-    chip: "rgba(118,118,128,0.10)",
-    shadow: "0 1px 2px rgba(16,20,26,.05), 0 6px 18px rgba(16,20,26,.04)",
-    seg: "rgba(118,118,128,0.10)",
-    segOn: "#FFFFFF",
-    segShadow: "0 3px 8px rgba(0,0,0,.10), 0 3px 1px rgba(0,0,0,.04)",
-  },
-  dark: {
-    bg: "#000000",
-    card: "#1C1C1E",
-    line: "rgba(84,84,88,0.42)",
-    ink: "#FFFFFF",
-    dim: "rgba(235,235,245,0.60)",
-    faint: "rgba(235,235,245,0.32)",
-    good: "#32C77F", warn: "#E39B54", bad: "#FF6B5E", cool: "#3E9E77",
-    chip: "rgba(118,118,128,0.22)",
-    shadow: "none",
-    seg: "rgba(118,118,128,0.24)",
-    segOn: "#48484A",
-    segShadow: "0 3px 8px rgba(0,0,0,.24)",
-  },
+/* Colour, shape and type all resolve to tokens declared in index.css. No hex
+   value lives in this file: light and dark are two sets of the same names, and
+   the class on <html> chooses which set is live. design.md 4.4.
+
+   Documented exception, design.md 18. The rule reserves green for action and
+   caps it at three appearances per screen. Here colour IS the data - a rung
+   that beats inflation is green, one that loses to it is red, across thirty
+   indicators at once. Reading the ladder in one glance is the product. The
+   rule assumes an app where green means "act here"; this is a dashboard where
+   green means "this one is winning". Kept deliberately, named here. */
+const C = {
+  bg: "var(--md-surface)",
+  card: "var(--md-surface-container-low)",
+  line: "var(--md-outline-variant)",
+  ink: "var(--md-on-surface)",
+  dim: "var(--md-on-surface-variant)",
+  faint: "var(--md-outline)",
+  good: "var(--md-primary)",
+  warn: "var(--md-tertiary)",
+  bad: "var(--md-error)",
+  cool: "var(--md-primary)",
+  chip: "var(--md-surface-container)",
+  shadow: "var(--md-elevation-1)",
+  seg: "var(--md-surface-container)",
+  segOn: "var(--md-surface-container-lowest)",
+  segShadow: "var(--md-elevation-1)",
 };
 
-const SIZES = { s: 14, m: 16, l: 18, xl: 21 };
+/* design.md 6.1. Narrative is mono at tracking 0em; everything the user
+   clicks or reads at length is Inter. Every size is rem, so the font-size
+   toggle moves the whole system from one variable. */
+const MONO = "var(--font-narrative)";
+const T = {
+  displaySm:  { fontSize: "2.25rem",   lineHeight: "2.75rem", fontWeight: 400, fontFamily: MONO, letterSpacing: "0em" },
+  headlineLg: { fontSize: "2rem",      lineHeight: "2.5rem",  fontWeight: 400, fontFamily: MONO, letterSpacing: "0em" },
+  headlineSm: { fontSize: "1.5rem",    lineHeight: "2rem",    fontWeight: 400, fontFamily: MONO, letterSpacing: "0em" },
+  titleLg:    { fontSize: "1.375rem",  lineHeight: "1.75rem", fontWeight: 600, letterSpacing: "-0.011em" },
+  titleMd:    { fontSize: "1rem",      lineHeight: "1.5rem",  fontWeight: 500, letterSpacing: "-0.006em" },
+  titleSm:    { fontSize: "0.875rem",  lineHeight: "1.25rem", fontWeight: 500, letterSpacing: "0" },
+  bodyLg:     { fontSize: "1rem",      lineHeight: "1.5rem",  fontWeight: 400, letterSpacing: "0" },
+  bodyMd:     { fontSize: "0.875rem",  lineHeight: "1.375rem", fontWeight: 400, letterSpacing: "0" },
+  bodySm:     { fontSize: "0.75rem",   lineHeight: "1.125rem", fontWeight: 400, letterSpacing: "0.004em" },
+  labelLg:    { fontSize: "0.875rem",  lineHeight: "1.25rem", fontWeight: 500, letterSpacing: "0.006em" },
+  labelMd:    { fontSize: "0.75rem",   lineHeight: "1rem",    fontWeight: 500, letterSpacing: "0.012em" },
+  labelSm:    { fontSize: "0.6875rem", lineHeight: "1rem",    fontWeight: 500, letterSpacing: "0.016em" },
+};
+
+/* design.md 12.2 */
+const SCALES = [["compact", "S"], ["default", "M"], ["large", "L"], ["xlarge", "XL"]];
+
 
 /* ===========================================================================
-   SEED — every figure a real published reading, verified 17 August 2026
+   SEED - every figure a real published reading, verified 17 August 2026
 =========================================================================== */
 const YEARS = Array.from({ length: 24 }, (_, i) => 2002 + i);
 const N = null;
@@ -318,7 +343,7 @@ const SEED = {
       hist: [8.68,8.71,8.74,8.72,8.75,8.71,8.7494],
       what: "What banks actually charge each other for overnight money, averaged across the market.",
       why: "It shows whether the policy rate is real. Sitting on the policy rate means the money market is calm; drifting above it means cash is tight somewhere.",
-      note: "Sitting almost exactly on the policy rate. The overnight market is in balance — no liquidity stress, no flood." },
+      note: "Sitting almost exactly on the policy rate. The overnight market is in balance - no liquidity stress, no flood." },
     { id: "tbill", label: "91-day Treasury bill", group: "Policy", unit: "%", dir: 0,
       value: 8.773, prior: 7.64, priorLabel: "February", asOf: "17 Aug 2026", src: "CBK",
       hist: [9.1,8.9,8.6,8.3,8.1,7.9,7.64,8.12,8.45,8.61,8.773],
@@ -337,7 +362,7 @@ const SEED = {
       what: "The return on lending to the government for a year.",
       why: "The longest bill. The gap between this and the 91-day shows what the market thinks rates will do over the next year.",
       hist: [10.1,9.9,9.7,9.4,9.2,9.04],
-      note: "Only 7bp above the 182-day — the short curve is almost flat." },
+      note: "Only 7bp above the 182-day - the short curve is almost flat." },
 
     { id: "discount", label: "Discount window", group: "Policy", unit: "%", dir: 0,
       value: 9.25, prior: 9.25, priorLabel: "unchanged", asOf: "8 Apr 2026", src: "CBK",
@@ -363,7 +388,7 @@ const SEED = {
       what: "How much more the same shopping basket costs than a year ago.",
       why: "It is the rate at which money loses its purchasing power. Every return you earn has to beat this before you have gained anything at all.",
       hist: [3.8,4.1,4.5,4.6,4.6,4.5,4.5,4.4,4.3,4.4,5.6,6.7,6.4,6.49],
-      note: "Transport and food carry it. Non-core runs well above core — a supply shock, not demand." },
+      note: "Transport and food carry it. Non-core runs well above core - a supply shock, not demand." },
 
     { id: "lending", label: "Average lending rate", group: "Banking", unit: "%", dir: -1,
       value: 14.38, prior: 14.5, priorLabel: "May", asOf: "Jun 2026", src: "CBK",
@@ -442,7 +467,7 @@ const SEED = {
       hist: [49.6,50.1,50.8,51.4,50.9,51.2,51.8],
       what: "A monthly survey of purchasing managers. Above 50 means expansion.",
       why: "The earliest read on activity there is, published on the first working day of each month \u2014 months before GDP confirms the same story.",
-      note: "The earliest read on activity there is — published on the first working day, months before GDP." },
+      note: "The earliest read on activity there is - published on the first working day, months before GDP." },
 
     { id: "nasi", label: "NSE All Share", group: "Markets", unit: "", dir: 1,
       value: 241.18, prior: 238.13, priorLabel: "14 Aug", asOf: "17 Aug 2026", src: "NSE",
@@ -555,7 +580,7 @@ const SEED = {
   breaks: [
     { name: "Bank margin over policy", value: 5.63, unit: "pp", normalLo: 3.5, normalHi: 5.5, state: "high", basis: "judgement", n: 0,
       why: "Average lending rate less the Central Bank Rate.",
-      reading: "Banks are holding spreads wide while policy eases. Transmission is incomplete, so more of the cut has yet to reach borrowers — and more of the fall in lending rates is still to come." },
+      reading: "Banks are holding spreads wide while policy eases. Transmission is incomplete, so more of the cut has yet to reach borrowers - and more of the fall in lending rates is still to come." },
     { name: "91-day over policy", value: 0.02, unit: "pp", normalLo: -1, normalHi: 0.75, state: "normal", basis: "judgement", n: 0,
       why: "91-day bill less the Central Bank Rate.",
       reading: "Inside its usual range, but it has climbed 113bp since February. Worth watching: a move above 0.75 says the market has stopped believing in more cuts." },
@@ -570,10 +595,10 @@ const SEED = {
       reading: "Re-rating off the bottom. It reached 30% in 2013 and fell to 15% in 2023. There is room before this looks stretched." },
     { name: "Overnight against policy", value: 0, unit: "pp", normalLo: -0.5, normalHi: 0.5, state: "normal", basis: "judgement", n: 0,
       why: "KESONIA less the Central Bank Rate.",
-      reading: "Exactly on policy. The money market is in balance — no stress, no flood." },
+      reading: "Exactly on policy. The money market is in balance - no stress, no flood." },
   ],
 
-  call: "Real yields are positive: seven of ten instruments beat inflation after tax, led by infrastructure bonds at +6.31% real. Three lose purchasing power, cash worst at −6.49%. In the chain, everything has moved except GDP, which lags credit by about eleven months — the growth already funded has not yet printed. One relationship is outside its range: the bank margin over policy at 5.63pp, which says lending rates have further to fall.",
+  call: "Real yields are positive: seven of ten instruments beat inflation after tax, led by infrastructure bonds at +6.31% real. Three lose purchasing power, cash worst at −6.49%. In the chain, everything has moved except GDP, which lags credit by about eleven months - the growth already funded has not yet printed. One relationship is outside its range: the bank margin over policy at 5.63pp, which says lending rates have further to fall.",
 
   disagreements: [
     { id: "gdp", label: "GDP growth", kept: "KNBS quarterly", keptValue: 5.3,
@@ -581,12 +606,12 @@ const SEED = {
       why: "Different vintages. The quarterly print is Q1 2026, the annual is calendar 2025." },
     { id: "tbill_tax", label: "T-bill withholding tax", kept: "Tax practices", keptValue: 15,
       other: "Retail aggregator", otherValue: 0, gapPct: 100,
-      why: "EY, Cliffe Dekker and FNJ all state 15% on bill interest. One retail site claims individuals are exempt. No tax practice corroborates it, so 15% is used — override it in settings if your own advice differs." },
+      why: "EY, Cliffe Dekker and FNJ all state 15% on bill interest. One retail site claims individuals are exempt. No tax practice corroborates it, so 15% is used - override it in settings if your own advice differs." },
   ],
 };
 
 const SOURCES = [
-  { name: "Central Bank of Kenya", covers: "CBR, KESONIA, REPO, 91-day, inflation, lending, deposit, savings, official FX — ten rates in one request", key: false },
+  { name: "Central Bank of Kenya", covers: "CBR, KESONIA, REPO, 91-day, inflation, lending, deposit, savings, official FX - ten rates in one request", key: false },
   { name: "Nairobi Securities Exchange", covers: "NASI, NSE 20 and 25, banking index, market cap", key: false },
   { name: "FRED, St Louis Fed", covers: "US Fed funds and the 10-year", key: false },
   { name: "IMF DataMapper", covers: "Kenya, world, Sub-Saharan Africa and US, with forecasts to 2031", key: false },
@@ -607,7 +632,7 @@ function stateOf(i) {
   return (m > 0) === (i.dir > 0) ? "good" : "stress";
 }
 const fmt = (v, unit, dp) => {
-  if (v == null) return "—";
+  if (v == null) return "-";
   const d = dp != null ? dp : Math.abs(v) >= 1000 ? 0 : Math.abs(v) >= 100 ? 2 : 2;
   return v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }) + (unit || "");
 };
@@ -637,18 +662,11 @@ const CloseGlyph = () => <svg {...G}><path d="M18 6 6 18M6 6l12 12" /></svg>;
 function Mark({ size = 44 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <defs>
-        <linearGradient id="kpg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#2E8C64" />
-          <stop offset="58%" stopColor="#237352" />
-          <stop offset="100%" stopColor="#B0642A" />
-        </linearGradient>
-      </defs>
-      <rect width="48" height="48" rx="13" fill="url(#kpg)" />
+      <rect width="48" height="48" rx="13" style={{ fill: "var(--md-primary)" }} />
       <path d="M7 27h6.5l3.6-11 5.4 20 4.6-15 3.2 8.5h11"
-        fill="none" stroke="#fff" strokeWidth="2.6"
+        fill="none" strokeWidth="2.6" style={{ stroke: "var(--md-on-primary)" }}
         strokeLinecap="round" strokeLinejoin="round" opacity=".97" />
-      <circle cx="38.5" cy="29.5" r="2.9" fill="#fff" />
+      <circle cx="38.5" cy="29.5" r="2.9" style={{ fill: "var(--md-on-primary)" }} />
     </svg>
   );
 }
@@ -663,10 +681,11 @@ function Spark({ data, colour, h = 30, w = 88 }) {  // w/h set by caller on mobi
   const last = data[data.length - 1];
   return (
     <svg width={w} height={h} style={{ overflow: "visible", flexShrink: 0 }} aria-hidden="true">
-      <polyline points={pts} fill="none" stroke={colour} strokeWidth="1.8"
+      <polyline points={pts} fill="none" strokeWidth="1.8"
         strokeLinejoin="round" strokeLinecap="round"
-        style={{ strokeDasharray: 400, strokeDashoffset: 0, animation: "kp-draw .7s ease-out" }} />
-      <circle cx={w} cy={h - ((last - lo) / r) * (h - 4) - 2} r="2.6" fill={colour} />
+        style={{ stroke: colour, strokeDasharray: 400, strokeDashoffset: 0,
+          animation: "kp-draw .7s var(--ease-standard)" }} />
+      <circle cx={w} cy={h - ((last - lo) / r) * (h - 4) - 2} r="2.6" style={{ fill: colour }} />
     </svg>
   );
 }
@@ -683,10 +702,10 @@ function Bars({ years, values, c, unit, narrow }) {
 
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ display: "flex", gap: 6, minWidth: 0 }}>
+      <div style={{ display: "flex", gap: 4, minWidth: 0 }}>
         {/* y-axis: without a scale the bars are decoration, not information */}
         <div style={{ width: axisW, height: H, position: "relative", flexShrink: 0,
-          fontSize: narrow ? ".6em" : ".66em", color: c.faint }}>
+          fontSize: narrow ? "0.6875rem" : "0.6875rem", color: c.faint }}>
           <span style={{ position: "absolute", top: -4, right: 0 }}>
             {fmt(hi, unit, dp)}
           </span>
@@ -700,9 +719,10 @@ function Bars({ years, values, c, unit, narrow }) {
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* design.md 11.2: horizontal gridlines only - no axis line, no
+              tick marks, no border. The zero rule below carries the baseline. */}
           <div style={{ display: "flex", alignItems: "flex-end", gap: narrow ? 1 : 2,
-            height: H, position: "relative", borderBottom: `1px solid ${c.line}`,
-            minWidth: 0 }}>
+            height: H, position: "relative", minWidth: 0 }}>
             <div style={{ position: "absolute", left: 0, right: 0, top: `${zero}%`,
               borderTop: `1px dashed ${c.line}` }} />
             {values.map((v, i) => {
@@ -712,18 +732,18 @@ function Bars({ years, values, c, unit, narrow }) {
               return (
                 <div key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
                   onClick={() => setHover(on ? null : i)}
-                  title={v == null ? `${years[i]} — not published` : `${years[i]}: ${fmt(v, unit)}`}
+                  title={v == null ? `${years[i]} - not published` : `${years[i]}: ${fmt(v, unit)}`}
                   style={{ flex: 1, minWidth: 0, height: "100%", position: "relative",
                     cursor: "pointer" }}>
                   {v == null ? (
                     <div style={{ position: "absolute", left: 0, right: 0, bottom: 0,
-                      height: 3, background: c.line, opacity: .5, borderRadius: 1 }} />
+                      height: 3, background: c.line, opacity: .5, borderRadius: 4 }} />
                   ) : (
                     <div style={{ position: "absolute", left: 0, right: 0,
                       top: up ? `calc(${zero}% - ${h}%)` : `${zero}%`,
                       height: `${h}%`, minHeight: 1,
                       background: on ? c.ink : (up ? c.good : c.bad),
-                      opacity: on ? 1 : .84, borderRadius: 1,
+                      opacity: on ? 1 : .84, borderRadius: 4,
                       transition: "background .15s, opacity .15s" }} />
                   )}
                 </div>
@@ -731,7 +751,7 @@ function Bars({ years, values, c, unit, narrow }) {
             })}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between",
-            fontSize: narrow ? ".66em" : ".72em", color: c.faint, marginTop: 6, gap: 6 }}>
+            fontSize: narrow ? "0.6875rem" : "0.75rem", color: c.faint, marginTop: 4, gap: 4 }}>
             <span style={{ flexShrink: 0 }}>{years[0]}</span>
             <span style={{ color: hover != null ? c.ink : c.faint,
               fontWeight: hover != null ? 600 : 400, textAlign: "center",
@@ -749,8 +769,8 @@ function Bars({ years, values, c, unit, narrow }) {
 }
 
 const Pill = ({ children, tone, c }) => (
-  <span style={{ fontSize: ".7em", fontWeight: 600, letterSpacing: ".05em",
-    textTransform: "uppercase", whiteSpace: "nowrap", padding: "3px 9px", borderRadius: 20,
+  <span style={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: ".05em",
+    textTransform: "uppercase", whiteSpace: "nowrap", padding: "3px 9px", borderRadius: "var(--r-lg)",
     color: { good: c.good, stress: c.bad, watch: c.warn, steady: c.dim }[tone] || c.dim,
     background: c.chip }}>{children}</span>
 );
@@ -760,11 +780,18 @@ const Pill = ({ children, tone, c }) => (
 =========================================================================== */
 export default function KenyaPulse() {
   const [cfg, setCfg] = useState(() => ({
-    theme: "system", size: "m", autoSync: true,
+    theme: uiPref("ui.theme", ["system", "light", "dark"], "system"),
+    size: uiPref("ui.fontScale", ["compact", "default", "large", "xlarge"], "default"),
+    autoSync: true,
     pinned: ["inflation", "cbr", "tbill", "debt_gdp"], showBands: true,
     compact: false, taxBill: 15, taxMmf: 15, taxBond: 10,
     notifyOn: false, notifyTime: "08:00", notifyDays: [1, 2, 3, 4, 5],
     ...store.get("kp.cfg", {}),
+    /* last word to the keys the pre-paint script read */
+    theme: uiPref("ui.theme", ["system", "light", "dark"],
+      store.get("kp.cfg", {}).theme || "system"),
+    size: uiPref("ui.fontScale", ["compact", "default", "large", "xlarge"],
+      store.get("kp.cfg", {}).size || "default"),
   }));
   const [data, setData] = useState(() => store.get("kp.data", SEED));
   const [tab, setTab] = useState(() => readHash().tab || "pulse");
@@ -829,7 +856,7 @@ export default function KenyaPulse() {
   const set = (k, v) => setCfg(p => ({ ...p, [k]: v }));
 
   /* viewport width drives the handful of layout decisions that cannot be made
-     in CSS alone — sparkline geometry, label length, chart density */
+     in CSS alone - sparkline geometry, label length, chart density */
   const [vw, setVw] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth : 420);
   useEffect(() => {
@@ -849,8 +876,21 @@ export default function KenyaPulse() {
     return () => m.removeEventListener("change", f);
   }, []);
   const dark = cfg.theme === "dark" || (cfg.theme === "system" && sysDark);
-  const c = dark ? THEME.dark : THEME.light;
-  const base = SIZES[cfg.size] || 16;
+  const c = C;
+
+  /* The palette and the scale live on <html>, matching the script that ran
+     before the first stylesheet. Writing the same two keys it reads means the
+     next cold start opens in the right theme with no flash. design.md 12. */
+  useEffect(() => {
+    const root = typeof document !== "undefined" && document.documentElement;
+    if (!root) return;                       // no DOM: nothing to dress
+    root.classList.toggle("dark", dark);
+    root.dataset.fontScale = cfg.size;
+    try {
+      window.localStorage.setItem("ui.theme", cfg.theme);
+      window.localStorage.setItem("ui.fontScale", cfg.size);
+    } catch { /* private browsing; the app still works, it just forgets */ }
+  }, [dark, cfg.theme, cfg.size]);
 
   const pull = async (silent) => {
     setSync({ state: "busy", msg: "Fetching…" });
@@ -863,7 +903,7 @@ export default function KenyaPulse() {
       setSync({ state: "ok", msg: `Synced ${j.asOf || "now"}` });
       return merged;
     } catch (e) {
-      setSync({ state: "err", msg: silent ? "" : `Could not reach the feed — ${e.message}` });
+      setSync({ state: "err", msg: silent ? "" : `Could not reach the feed - ${e.message}` });
       return null;
     }
   };
@@ -977,25 +1017,21 @@ export default function KenyaPulse() {
   };
 
   const S = {
-    page: { minHeight: "100vh", background: c.bg, color: c.ink, fontSize: base,
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', " +
-        "'Inter', 'Segoe UI', system-ui, sans-serif",
-      lineHeight: 1.47, fontVariantNumeric: "tabular-nums",
-      letterSpacing: "-.011em",
-      WebkitFontSmoothing: "antialiased",
-      transition: "background .3s ease, color .3s ease" },
+    page: { minHeight: "100vh", background: c.bg, color: c.ink,
+      fontFamily: "var(--font-ui)", ...T.bodyMd,
+      transition: "background var(--dur-medium, .3s) var(--ease-standard)" },
     wrap: { maxWidth: 720, margin: "0 auto",
       padding: narrow ? "10px 10px 40px" : "12px 14px 44px" },
-    eyebrow: { fontSize: ".72em", fontWeight: 600, letterSpacing: ".1em",
+    eyebrow: { fontSize: "0.75rem", fontWeight: 600, letterSpacing: ".1em",
       textTransform: "uppercase", color: c.dim },
-    icon: { width: 44, height: 44, borderRadius: 44, border: "none",
-      background: c.chip, color: c.dim, cursor: "pointer", fontSize: "14px",
+    icon: { width: 44, height: 44, borderRadius: "var(--r-full)", border: "none",
+      background: c.chip, color: c.dim, cursor: "pointer", ...T.labelLg,
       display: "grid", placeItems: "center", flexShrink: 0,
-      transition: "transform .16s cubic-bezier(.32,.72,0,1), background .2s" },
-    btn: (bg, fg) => ({ padding: "10px 18px", borderRadius: 10, border: "none",
-      background: bg, color: fg, fontWeight: 600, cursor: "pointer", fontSize: ".92em",
+      transition: "transform .16s var(--ease-emphasized), background .2s" },
+    btn: (bg, fg) => ({ padding: "10px 18px", borderRadius: "var(--r-sm)", border: "none",
+      background: bg, color: fg, fontWeight: 600, cursor: "pointer", fontSize: "0.875rem",
       letterSpacing: "-.01em",
-      transition: "transform .18s cubic-bezier(.32,.72,0,1), background .2s" }),
+      transition: "transform .18s var(--ease-emphasized), background .2s" }),
   };
 
   const TABS = [["pulse", "Pulse"], ["edge", "Edge"], ["trends", "Trends"],
@@ -1017,7 +1053,7 @@ export default function KenyaPulse() {
         @keyframes kp-grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
         /* Apple's standard easing. Motion decelerates rather than coasting,
            which is most of why native transitions feel settled. */
-        .kp-tap{transition:transform .18s cubic-bezier(.32,.72,0,1)}
+        .kp-tap{transition:transform .18s var(--ease-emphasized)}
         /* Nothing may push the page sideways. A dashboard that scrolls
            horizontally on a phone is a dashboard you stop opening. */
         html,body{overflow-x:hidden;-webkit-text-size-adjust:100%}
@@ -1025,9 +1061,9 @@ export default function KenyaPulse() {
         pre{word-break:break-word}
         .kp-tap:active{transform:scale(.96);opacity:.7}
         .kp-f:focus-visible{outline:2px solid ${c.cool};outline-offset:2px;border-radius:8px}
-        .kp-bar{transform-origin:left;animation:kp-grow .6s cubic-bezier(.32,.72,0,1) both}
+        .kp-bar{transform-origin:left;animation:kp-grow .6s var(--ease-emphasized) both}
         @media (prefers-reduced-transparency:reduce){
-          .kp-veil{background:rgba(0,0,0,.85)!important}
+          .kp-veil{background:var(--md-surface)!important}
         }
         @media (prefers-reduced-motion:reduce){
           *,*::before,*::after{animation:none!important;transition:none!important}
@@ -1039,16 +1075,16 @@ export default function KenyaPulse() {
         <header style={{ display: "flex", alignItems: "flex-start", gap: 12,
           margin: "6px 0 18px", padding: "0 2px" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 0 }}>
               <Mark size={26} />
-              <span style={{ fontSize: ".8em", fontWeight: 600, color: c.dim,
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: c.dim,
                 letterSpacing: ".01em" }}>Kenya Pulse</span>
             </div>
-            <div style={{ fontSize: narrow ? "1.9em" : "2.1em", fontWeight: 600,
+            <div style={{ fontSize: narrow ? "1.75rem" : "2rem", fontFamily: MONO, fontWeight: 600,
               letterSpacing: "-.028em", lineHeight: 1.08 }}>
               {now.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}
             </div>
-            <div style={{ fontSize: ".78em", color: c.faint, marginTop: 3 }}>
+            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 4 }}>
               {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
               {" · readings to "}
               {new Date(data.asOf + "T00:00:00").toLocaleDateString("en-GB",
@@ -1067,26 +1103,26 @@ export default function KenyaPulse() {
         </header>
 
         {/* ---------------- hero ---------------- */}
-        <div style={{ marginBottom: 18, minWidth: 0,
-          animation: "kp-rise .42s both cubic-bezier(.32,.72,0,1)" }}>
-          <div style={{ fontSize: ".76em", fontWeight: 600, letterSpacing: ".02em",
+        <div style={{ marginBottom: 16, minWidth: 0,
+          animation: "kp-rise .42s both var(--ease-emphasized)" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 600, letterSpacing: ".02em",
             color: c.dim, padding: "0 16px 7px", textTransform: "uppercase" }}>
             Best real return
           </div>
-          <div style={{ background: c.card, borderRadius: 18, padding: narrow ? 16 : 18,
+          <div style={{ background: c.card, borderRadius: "var(--r-lg)", padding: narrow ? 16 : 18,
             boxShadow: c.shadow }}>
             {best ? (
               <>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 10,
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8,
                   flexWrap: "wrap" }}>
-                  <span style={{ fontSize: narrow ? "2.6em" : "3em", fontWeight: 600,
+                  <span style={{ fontSize: narrow ? "1.875rem" : "2.25rem", fontFamily: MONO, fontWeight: 600,
                     color: vcol, letterSpacing: "-.045em", lineHeight: 1 }}>
                     {best.real > 0 ? "+" : ""}{best.real.toFixed(2)}%
                   </span>
-                  <span style={{ fontSize: ".95em", fontWeight: 500 }}>{best.label}</span>
+                  <span style={{ fontSize: "0.875rem", fontWeight: 500 }}>{best.label}</span>
                 </div>
-                <div style={{ fontSize: ".88em", color: c.dim, marginTop: 9, lineHeight: 1.5 }}>
-                  After tax and inflation. Cash loses {Math.abs(worst.real).toFixed(2)}% —
+                <div style={{ fontSize: "0.875rem", color: c.dim, marginTop: 8, lineHeight: 1.5 }}>
+                  After tax and inflation. Cash loses {Math.abs(worst.real).toFixed(2)}% -
                   a gap of <strong style={{ color: c.ink, fontWeight: 600 }}>
                   KES {Math.round(spread * 10000).toLocaleString("en-GB")}</strong> a year
                   on a million.
@@ -1095,26 +1131,26 @@ export default function KenyaPulse() {
             ) : <div style={{ color: c.dim }}>Waiting on rates.</div>}
 
             {staleRungs.length > 0 && (
-              <div style={{ marginTop: 10, fontSize: ".82em", color: c.warn }}>
+              <div style={{ marginTop: 8, fontSize: "0.75rem", color: c.warn }}>
                 {staleRungs.length} rate{staleRungs.length > 1 ? "s" : ""} overdue a refresh
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 2.5, marginTop: 18, height: 14,
+            <div style={{ display: "flex", gap: 0.5, marginTop: 16, height: 14,
               alignItems: "center" }}>
               {inds.map((i, n) => (
-                <button key={i.id} title={`${i.label} — ${i.state}`} className="kp-f"
+                <button key={i.id} title={`${i.label} - ${i.state}`} className="kp-f"
                   onClick={() => { setTab("pulse"); setExpanded(i.id); }}
                   style={{ flex: 1, border: "none", padding: 0, cursor: "pointer",
-                    borderRadius: 3,
+                    borderRadius: 4,
                     height: i.state === "stress" ? 14 : i.state === "good" ? 9 : 4,
                     background: i.state === "stress" ? c.bad
                       : i.state === "good" ? c.good : c.line,
                     opacity: i.state === "steady" ? 1 : .82,
-                    animation: `kp-rise .45s ${n * 0.012}s both cubic-bezier(.32,.72,0,1)` }} />
+                    animation: `kp-rise .45s ${n * 0.012}s both var(--ease-emphasized)` }} />
               ))}
             </div>
-            <div style={{ fontSize: ".82em", color: c.faint, marginTop: 10, lineHeight: 1.45 }}>
+            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 8, lineHeight: 1.45 }}>
               {stressed.length
                 ? <>{stressed.length} under pressure
                   {offRange.length > 0 && `, ${offRange.length} off range`}</>
@@ -1124,19 +1160,19 @@ export default function KenyaPulse() {
         </div>
 
         {/* ---------------- tabs ---------------- */}
-        <div role="tablist" style={{ display: "flex", background: c.seg, borderRadius: 10,
-          padding: 2, marginBottom: 18 }}>
+        <div role="tablist" style={{ display: "flex", background: c.seg, borderRadius: "var(--r-sm)",
+          padding: 0, marginBottom: 16 }}>
           {TABS.map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} className="kp-f kp-tap"
               role="tab" aria-selected={tab === k}
               style={{ flex: 1, minWidth: 0, padding: "7px 2px",
-                border: "none", borderRadius: 8, cursor: "pointer",
+                border: "none", borderRadius: "var(--r-xs)", cursor: "pointer",
                 background: tab === k ? c.segOn : "transparent",
-                fontSize: "clamp(11px, 3.2vw, 14px)",
+                ...T.labelLg,
                 letterSpacing: tiny ? "-.02em" : "-.01em",
                 color: tab === k ? c.ink : c.dim, fontWeight: 600,
                 boxShadow: tab === k ? c.segShadow : "none", whiteSpace: "nowrap",
-                transition: "background .22s cubic-bezier(.32,.72,0,1), color .2s, box-shadow .22s" }}>
+                transition: "background .22s var(--ease-emphasized), color .2s, box-shadow .22s" }}>
               {l}
             </button>
           ))}
@@ -1145,8 +1181,8 @@ export default function KenyaPulse() {
         {/* minWidth:0 is load-bearing. A grid item defaults to min-width:auto,
             which lets a horizontally scrolling child push the whole column
             wider than the screen. That is what clipped the Trends chart. */}
-        <div key={tab} style={{ display: "grid", gap: 14, minWidth: 0,
-          animation: "kp-fade .32s cubic-bezier(.32,.72,0,1) both" }}>
+        <div key={tab} style={{ display: "grid", gap: 12, minWidth: 0,
+          animation: "kp-fade .32s var(--ease-emphasized) both" }}>
 
           {/* ================= PULSE ================= */}
           {tab === "pulse" && <>
@@ -1156,17 +1192,17 @@ export default function KenyaPulse() {
                   gridTemplateColumns: tiny ? "1fr" : "1fr 1fr", gap: narrow ? 12 : 14 }}>
                   {cfg.pinned.map(id => byId[id]).filter(Boolean).map(i => (
                     <div key={i.id} style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: ".78em", color: c.dim, marginBottom: 3,
+                      <div style={{ fontSize: "0.75rem", color: c.dim, marginBottom: 4,
                         overflow: "hidden", textOverflow: "ellipsis",
                         whiteSpace: "nowrap" }}>{i.label}</div>
                       {/* The figure stays neutral. Colour belongs on the change, not
-                          the level — a rate easing slightly is not bad news. */}
-                      <div style={{ fontSize: "1.55em", fontWeight: 600, color: c.ink,
+                          the level - a rate easing slightly is not bad news. */}
+                      <div style={{ fontSize: "1.5rem", fontFamily: MONO, fontWeight: 600, color: c.ink,
                         letterSpacing: "-.03em", lineHeight: 1.15 }}>
                         {fmt(i.value, i.unit)}
                       </div>
                       {i.prior != null && (
-                        <div style={{ fontSize: ".76em", marginTop: 1,
+                        <div style={{ fontSize: "0.75rem", marginTop: 0,
                           color: i.state === "stress" ? c.bad
                             : i.state === "good" ? c.good : c.faint }}>
                           {i.value > i.prior ? "↑" : i.value < i.prior ? "↓" : "–"}
@@ -1188,49 +1224,49 @@ export default function KenyaPulse() {
                     <div key={i.id}>
                       <button onClick={() => setExpanded(open ? null : i.id)} className="kp-f"
                         aria-expanded={open}
-                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 11,
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 12,
                           padding: cfg.compact ? "10px 16px" : "13px 16px", background: "none",
                           border: "none", cursor: "pointer", textAlign: "left", minHeight: 44 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 8, background: col,
+                        <span style={{ width: 8, height: 8, borderRadius: "var(--r-xs)", background: col,
                           flexShrink: 0 }} />
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: "block", fontWeight: 500, fontSize: ".95em",
+                          <span style={{ display: "block", fontWeight: 500, fontSize: "0.875rem",
                             lineHeight: 1.3, letterSpacing: "-.012em",
                             ...(narrow ? {} : { overflow: "hidden", textOverflow: "ellipsis",
                               whiteSpace: "nowrap" }) }}>{i.label}</span>
-                          <span style={{ fontSize: ".76em", color: c.faint }}>
+                          <span style={{ fontSize: "0.75rem", color: c.faint }}>
                             {i.asOf}
                           </span>
                         </span>
                         {!cfg.compact && !tiny &&
                           <Spark data={i.hist} colour={col} w={narrow ? 46 : 76} h={narrow ? 24 : 28} />}
                         <span style={{ textAlign: "right", flexShrink: 0 }}>
-                          <span style={{ display: "block", fontWeight: 600, fontSize: "1em",
+                          <span style={{ display: "block", fontWeight: 600, fontSize: "1rem",
                             letterSpacing: "-.015em" }}>{fmt(i.value, i.unit)}</span>
                           {i.prior != null && (
-                            <span style={{ fontSize: ".76em", color: col }}>
+                            <span style={{ fontSize: "0.75rem", color: col }}>
                               {i.value > i.prior ? "+" : ""}{fmt(i.value - i.prior, "")}
                             </span>
                           )}
                         </span>
-                        <span aria-hidden="true" style={{ color: c.faint, fontSize: ".9em",
+                        <span aria-hidden="true" style={{ color: c.faint, fontSize: "0.875rem",
                           flexShrink: 0, transform: open ? "rotate(90deg)" : "none",
-                          transition: "transform .25s cubic-bezier(.32,.72,0,1)" }}>›</span>
+                          transition: "transform .25s var(--ease-emphasized)" }}>›</span>
                       </button>
 
                       {open && (
-                        <div style={{ padding: "2px 16px 16px 35px", fontSize: ".88em",
-                          color: c.dim, animation: "kp-rise .28s both cubic-bezier(.32,.72,0,1)" }}>
+                        <div style={{ padding: "2px 16px 16px 35px", fontSize: "0.875rem",
+                          color: c.dim, animation: "kp-rise .28s both var(--ease-emphasized)" }}>
                           {i.what && (
                             <div style={{ marginBottom: 12, padding: "12px 14px",
-                              background: c.chip, borderRadius: 12 }}>
+                              background: c.chip, borderRadius: "var(--r-sm)" }}>
                               <div style={{ color: c.ink, marginBottom: 8 }}>{i.what}</div>
                               <div style={{ color: c.dim }}>{i.why}</div>
                             </div>
                           )}
                           <div style={{ marginBottom: 12, color: c.ink }}>{i.note}</div>
-                          <div style={{ display: "flex", gap: 14, flexWrap: "wrap",
-                            fontSize: ".9em", color: c.faint }}>
+                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap",
+                            fontSize: "0.875rem", color: c.faint }}>
                             <span>{i.src}</span>
                           </div>
                           {i.band && cfg.showBands && (
@@ -1238,16 +1274,16 @@ export default function KenyaPulse() {
                           )}
                           <button onClick={() => share(i.label, linkTo("pulse", i.id))}
                             className="kp-f kp-tap"
-                            style={{ marginTop: 14, padding: 0, border: "none",
+                            style={{ marginTop: 12, padding: 0, border: "none",
                               background: "none", color: c.cool, cursor: "pointer",
-                              fontSize: ".88em", fontWeight: 600 }}>
+                              fontSize: "0.875rem", fontWeight: 600 }}>
                             {copied ? "Link copied" : "Share"}
                           </button>
                         </div>
                       )}
 
                       {n < arr.length - 1 && (
-                        <div style={{ height: 1, background: c.line, marginLeft: 35 }} />
+                        <div style={{ height: 1, background: c.line, marginLeft: 32 }} />
                       )}
                     </div>
                   );
@@ -1259,20 +1295,20 @@ export default function KenyaPulse() {
           {/* ================= EDGE ================= */}
           {tab === "edge" && <>
             <Section title="Briefing" c={c} i={0} pad={narrow ? 16 : 18}>
-              <div style={{ fontSize: ".92em", lineHeight: 1.52, color: c.ink }}>{data.call}</div>
+              <div style={{ fontSize: "0.875rem", lineHeight: 1.52, color: c.ink }}>{data.call}</div>
               <pre style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
-                fontSize: ".76em", lineHeight: 1.6, whiteSpace: "pre-wrap",
+                fontSize: "0.75rem", lineHeight: 1.6, whiteSpace: "pre-wrap",
                 margin: "14px 0 0", color: c.dim }}>{brief}</pre>
               <button onClick={() => copy(`${data.call}\n\n${brief}`)} className="kp-f kp-tap"
-                style={{ ...S.btn(copied ? c.good : c.cool, "#fff"), marginTop: 14 }}>
+                style={{ ...S.btn(copied ? c.good : c.cool, "#fff"), marginTop: 12 }}>
                 {copied ? "Copied" : "Copy briefing"}
               </button>
             </Section>
 
             {/* LADDER */}
             <Section title="What is being paid" c={c} i={1} pad={narrow ? 16 : 18}
-              note="OLD marks a rate past its usual publication cycle — check it before acting. Arithmetic on published rates, not advice. Tax rates are editable in settings.">
-              <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 16 }}>
+              note="OLD marks a rate past its usual publication cycle - check it before acting. Arithmetic on published rates, not advice. Tax rates are editable in settings.">
+              <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
                 After withholding tax, less inflation.
               </div>
               {(() => {
@@ -1284,17 +1320,17 @@ export default function KenyaPulse() {
                     <div key={r.id} style={{ padding: "9px 0",
                       borderBottom: n < ladder.length - 1 ? `1px solid ${c.line}` : "none" }}>
                       <div style={{ display: "flex", justifyContent: "space-between",
-                        alignItems: "baseline", gap: 8, marginBottom: 5 }}>
-                        <span style={{ fontWeight: n === 0 ? 600 : 400, fontSize: ".92em",
-                          display: "flex", alignItems: "center", gap: 6 }}>
+                        alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontWeight: n === 0 ? 600 : 400, fontSize: "0.875rem",
+                          display: "flex", alignItems: "center", gap: 4 }}>
                           {r.label}
                           {r.stale && <span title="This rate needs refreshing"
-                            style={{ fontSize: ".7em", fontWeight: 600, color: c.warn,
+                            style={{ fontSize: "0.6875rem", fontWeight: 600, color: c.warn,
                               border: `1px solid ${c.warn}`, borderRadius: 4,
                               padding: "0 4px", opacity: .9 }}>OLD</span>}
                         </span>
                         <span style={{ fontWeight: 600, color: pos ? c.good : c.bad,
-                          fontSize: ".96em", whiteSpace: "nowrap" }}>
+                          fontSize: "1rem", whiteSpace: "nowrap" }}>
                           {r.real > 0 ? "+" : ""}{r.real.toFixed(2)}%
                         </span>
                       </div>
@@ -1307,7 +1343,7 @@ export default function KenyaPulse() {
                           background: pos ? c.good : c.bad, borderRadius: 4,
                           animationDelay: `${n * 0.04}s` }} />
                       </div>
-                      <div style={{ fontSize: ".73em", color: r.stale ? c.warn : c.faint }}>
+                      <div style={{ fontSize: "0.75rem", color: r.stale ? c.warn : c.faint }}>
                         {r.gross.toFixed(2)}% gross · {r.note} · {r.net.toFixed(2)}% net
                         {r.doublingYears && ` · doubles in ${r.doublingYears}y`}
                         {r.stale && (r.ageDays != null
@@ -1319,10 +1355,10 @@ export default function KenyaPulse() {
                 });
               })()}
               <div style={{ marginTop: 16, padding: "12px 14px", background: c.chip,
-                borderRadius: 12, fontSize: ".86em" }}>
+                borderRadius: "var(--r-sm)", fontSize: "0.875rem" }}>
                 Top to bottom is <strong style={{ color: c.warn, fontWeight: 600 }}>
                 {(ladder[0].real - ladder[ladder.length - 1].real).toFixed(2)} points</strong> a
-                year — about <strong style={{ fontWeight: 600 }}>KES {Math.round((ladder[0].real -
+                year - about <strong style={{ fontWeight: 600 }}>KES {Math.round((ladder[0].real -
                 ladder[ladder.length - 1].real) * 10000).toLocaleString("en-GB")}</strong> on a
                 million. That is the price of standing still.
               </div>
@@ -1331,16 +1367,16 @@ export default function KenyaPulse() {
             {/* CHAIN */}
             <Section title="What is already coming" c={c} i={2} pad={narrow ? 16 : 18}
               note="A link that has not moved while the one before it has is the part nobody has priced.">
-              <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 18 }}>
+              <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
                 Policy reaches the economy along a chain, each link lagging the last.
               </div>
               {data.chain.map((s, n) => {
                 const last = n === data.chain.length - 1;
                 const tone = s.status === "moved" ? c.good : s.status === "still" ? c.warn : c.faint;
                 return (
-                  <div key={s.id} style={{ display: "flex", gap: 13 }}>
+                  <div key={s.id} style={{ display: "flex", gap: 12 }}>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22 }}>
-                      <span style={{ width: 11, height: 11, borderRadius: 11, background: tone,
+                      <span style={{ width: 11, height: 11, borderRadius: "var(--r-sm)", background: tone,
                         border: `2px solid ${c.card}`, boxShadow: `0 0 0 1.5px ${tone}`, flexShrink: 0,
                         animation: `kp-rise .35s ${n * .06}s both` }} />
                       {!last && <span style={{ flex: 1, width: 2, background: c.line, minHeight: 30 }} />}
@@ -1348,14 +1384,14 @@ export default function KenyaPulse() {
                     <div style={{ flex: 1, paddingBottom: last ? 0 : 16 }}>
                       <div style={{ display: "flex", justifyContent: "space-between",
                         alignItems: "baseline", gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: ".93em" }}>{s.label}</span>
+                        <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{s.label}</span>
                         <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{s.value}</span>
                       </div>
-                      <div style={{ fontSize: ".78em", color: c.faint, marginTop: 2 }}>
+                      <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 0 }}>
                         {s.lagMonths === 0 ? "immediate" : `about ${s.lagMonths} months behind policy`}
                         {" · "}{s.why}
                       </div>
-                      <div style={{ fontSize: ".78em", marginTop: 4, color: tone, fontWeight: 600 }}>
+                      <div style={{ fontSize: "0.75rem", marginTop: 4, color: tone, fontWeight: 600 }}>
                         {s.status === "moved" && `moved ${s.move > 0 ? "+" : ""}${s.move} over recent readings`}
                         {s.status === "still" && "has not moved yet"}
                         {s.status === "waiting" && "needs more readings"}
@@ -1369,7 +1405,7 @@ export default function KenyaPulse() {
             {/* BREAKS */}
             <Section title="What is mispriced" c={c} i={3} pad={narrow ? 16 : 18}
               note="A measured range is computed from readings this app has logged. A judged one is read off published history until enough readings exist.">
-              <div style={{ fontSize: ".84em", color: c.dim, marginBottom: 16 }}>
+              <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
                 Relationships that normally hold. One outside its range is either a mispricing
                 or a regime change.
               </div>
@@ -1379,15 +1415,15 @@ export default function KenyaPulse() {
                 const span = b.normalHi - b.normalLo || 1;
                 const pos = Math.max(-18, Math.min(118, ((b.value - b.normalLo) / span) * 100));
                 return (
-                  <div key={b.name} style={{ paddingTop: n ? 14 : 0, paddingBottom: 14,
+                  <div key={b.name} style={{ paddingTop: n ? 14 : 0, paddingBottom: 12,
                     borderTop: n ? `1px solid ${c.line}` : "none" }}>
                     <button onClick={() => setOpenBreak(open ? null : b.name)} className="kp-f"
                       aria-expanded={open}
                       style={{ width: "100%", background: "none", border: "none", padding: 0,
                         cursor: "pointer", textAlign: "left" }}>
                       <div style={{ display: "flex", justifyContent: "space-between",
-                        alignItems: "baseline", gap: 8, marginBottom: 9 }}>
-                        <span style={{ fontWeight: 600, fontSize: ".93em" }}>{b.name}</span>
+                        alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{b.name}</span>
                         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <strong style={{ color: off ? c.warn : c.ink }}>
                             {b.value}{b.unit}
@@ -1396,37 +1432,37 @@ export default function KenyaPulse() {
                         </span>
                       </div>
                       <div style={{ position: "relative", height: 6, background: c.chip,
-                        borderRadius: 4, marginBottom: 5 }}>
+                        borderRadius: 4, marginBottom: 4 }}>
                         <div style={{ position: "absolute", left: "0%", right: "0%", top: 0,
                           bottom: 0, background: c.line, borderRadius: 4, opacity: .8 }} />
                         {/* Position is data, not motion. It moves once a fortnight
                             when the feed updates; animating it is decoration. */}
                         <div style={{ position: "absolute", top: -4,
                           left: `calc(${pos}% - 3px)`, width: 6, height: 14,
-                          borderRadius: 3, background: off ? c.warn : c.good }} />
+                          borderRadius: 4, background: off ? c.warn : c.good }} />
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between",
-                        fontSize: ".71em", color: c.faint }}>
+                        fontSize: "0.75rem", color: c.faint }}>
                         <span>{b.normalLo}{b.unit}</span>
                         <span>{b.basis === "derived" ? "measured range" : "judged range"}</span>
                         <span>{b.normalHi}{b.unit}</span>
                       </div>
                     </button>
                     {open && (
-                      <div style={{ marginTop: 11, fontSize: ".87em", animation: "kp-rise .25s both" }}>
-                        <div style={{ color: c.ink, marginBottom: 6 }}>{b.reading}</div>
-                        <div style={{ color: c.faint, fontSize: ".92em", marginBottom: 8 }}>{b.why}</div>
+                      <div style={{ marginTop: 12, fontSize: "0.875rem", animation: "kp-rise .25s both" }}>
+                        <div style={{ color: c.ink, marginBottom: 4 }}>{b.reading}</div>
+                        <div style={{ color: c.faint, fontSize: "0.875rem", marginBottom: 8 }}>{b.why}</div>
                         <div style={{ color: b.basis === "derived" ? c.faint : c.warn,
-                          fontSize: ".86em" }}>
+                          fontSize: "0.875rem" }}>
                           {b.basisNote || (b.basis === "derived"
                             ? "Range computed from logged readings."
-                            : "Range read off published history rather than measured — treat it as a judgement.")}
+                            : "Range read off published history rather than measured - treat it as a judgement.")}
                         </div>
                         <button onClick={() => share(b.name, linkTo("edge", b.name))}
                           className="kp-f kp-tap"
                           style={{ marginTop: 12, padding: 0, border: "none",
                             background: "none", color: c.cool, cursor: "pointer",
-                            fontSize: ".88em", fontWeight: 600 }}>
+                            fontSize: "0.875rem", fontWeight: 600 }}>
                           {copied ? "Link copied" : "Share"}
                         </button>
                       </div>
@@ -1468,18 +1504,18 @@ export default function KenyaPulse() {
               <Section title="Twenty-four years · 2002 to 2025" c={c} i={0} pad={narrow ? 16 : 18}
                 note="World Bank national accounts. A flat grey mark is a year not yet published.">
 
-                <div style={{ position: "relative", marginBottom: 14, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 6, overflowX: "auto",
+                <div style={{ position: "relative", marginBottom: 12, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 4, overflowX: "auto",
                     paddingBottom: 8, minWidth: 0,
                     scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
                     {Object.entries(ANNUAL_META).map(([k, m]) => (
                       <button key={k} onClick={() => setTrendKey(k)} className="kp-f kp-tap"
-                        style={{ padding: narrow ? "7px 10px" : "7px 12px", borderRadius: 9,
+                        style={{ padding: narrow ? "7px 10px" : "7px 12px", borderRadius: "var(--r-sm)",
                           whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0,
                           border: `1px solid ${trendKey === k ? c.good : c.line}`,
                           background: trendKey === k ? c.good : "transparent",
                           color: trendKey === k ? "#fff" : c.dim,
-                          fontSize: narrow ? ".78em" : ".82em",
+                          fontSize: narrow ? "0.75rem" : "0.75rem",
                           fontWeight: trendKey === k ? 700 : 500,
                           transition: "background .2s, color .2s" }}>
                         {m.label}
@@ -1493,10 +1529,10 @@ export default function KenyaPulse() {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8,
-                  marginBottom: 14, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: narrow ? "1.7em" : "2em", fontWeight: 600,
+                  marginBottom: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: narrow ? "1.375rem" : "1.5rem", fontFamily: MONO, fontWeight: 600,
                     letterSpacing: "-.03em" }}>{fmt(latest, u)}</span>
-                  <span style={{ fontSize: ".82em", color: c.dim }}>
+                  <span style={{ fontSize: "0.75rem", color: c.dim }}>
                     {meta.unit !== "%" && meta.unit + " · "}{latestYear}
                     {" · "}24-year average {fmt(avg, u)}
                   </span>
@@ -1505,30 +1541,30 @@ export default function KenyaPulse() {
                 <Bars years={YEARS} values={vals} c={c} unit={u} narrow={narrow} />
                 <button onClick={() => share(meta.label, linkTo("trends", trendKey))}
                   className="kp-f kp-tap"
-                  style={{ marginTop: 14, padding: 0, border: "none", background: "none",
-                    color: c.cool, cursor: "pointer", fontSize: ".88em", fontWeight: 600 }}>
+                  style={{ marginTop: 12, padding: 0, border: "none", background: "none",
+                    color: c.cool, cursor: "pointer", fontSize: "0.875rem", fontWeight: 600 }}>
                   {copied ? "Link copied" : "Share"}
                 </button>
               </Section>
 
               <Section title="Where this sits" c={c} i={1} pad={narrow ? 16 : 18}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: ".76em", color: c.dim }}>
+                  <div style={{ fontSize: "0.75rem", color: c.dim }}>
                     Against the 24-year mean
                   </div>
-                  <div style={{ fontSize: "1.55em", fontWeight: 600,
+                  <div style={{ fontSize: "1.5rem", fontFamily: MONO, fontWeight: 600,
                     color: (latest - avg) * meta.dir > 0 ? c.good : c.bad }}>
                     {latest > avg ? "+" : ""}{fmt(latest - avg, u)}
                   </div>
                 </div>
 
-                <div style={{ marginTop: 18, ...S.eyebrow, marginBottom: 10 }}>
+                <div style={{ marginTop: 16, ...S.eyebrow, marginBottom: 8 }}>
                   Decade averages
                 </div>
                 {decades.map(([l, v], n) => (
                   <div key={l} style={{ display: "flex", alignItems: "center",
-                    gap: 8, marginBottom: 9, minWidth: 0 }}>
-                    <span style={{ width: narrow ? 74 : 82, fontSize: narrow ? ".72em" : ".8em",
+                    gap: 8, marginBottom: 8, minWidth: 0 }}>
+                    <span style={{ width: narrow ? 74 : 82, fontSize: narrow ? "0.75rem" : "0.75rem",
                       color: c.dim, flexShrink: 0, whiteSpace: "nowrap" }}>{l}</span>
                     <span style={{ flex: 1, minWidth: 0, height: 8, background: c.chip,
                       borderRadius: 4, overflow: "hidden" }}>
@@ -1538,7 +1574,7 @@ export default function KenyaPulse() {
                         borderRadius: 4, animationDelay: `${n * .07}s` }} />
                     </span>
                     <span style={{ width: narrow ? 58 : 66, textAlign: "right",
-                      fontWeight: 600, fontSize: narrow ? ".78em" : ".86em",
+                      fontWeight: 600, fontSize: narrow ? "0.75rem" : "0.875rem",
                       flexShrink: 0, whiteSpace: "nowrap" }}>{fmt(v, u)}</span>
                   </div>
                 ))}
@@ -1551,7 +1587,7 @@ export default function KenyaPulse() {
           {/* ================= OUTLOOK ================= */}
           {tab === "outlook" && <>
             <Section title="The forward view · IMF" c={c} i={0} pad={narrow ? 16 : 18}>
-              <div style={{ fontSize: ".88em", color: c.dim }}>
+              <div style={{ fontSize: "0.875rem", color: c.dim }}>
                 Left of the marker has happened. Right of it is projection, and a projection is an
                 opinion with a spreadsheet attached. Read the direction, not the decimal.
               </div>
@@ -1564,14 +1600,14 @@ export default function KenyaPulse() {
               return (
                 <Section c={c} key={k} i={gi + 1} pad={narrow ? 16 : 18}>
                   <div style={{ display: "flex", justifyContent: "space-between",
-                    alignItems: "baseline", marginBottom: 14 }}>
+                    alignItems: "baseline", marginBottom: 12 }}>
                     <span style={{ fontWeight: 600, letterSpacing: "-.015em" }}>{m.label}</span>
                     <Pill tone={better ? "good" : "stress"} c={c}>
                       {better ? "improves" : "deteriorates"} to 2031
                     </Pill>
                   </div>
-                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 82,
-                    position: "relative", marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 82,
+                    position: "relative", marginBottom: 4 }}>
                     <div style={{ position: "absolute", top: 0, bottom: -4,
                       left: `${((split + .5) / m.v.length) * 100}%`, borderLeft: `1px dashed ${c.warn}` }} />
                     {m.v.map((val, i) => {
@@ -1580,12 +1616,12 @@ export default function KenyaPulse() {
                         <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column",
                           justifyContent: "flex-end", alignItems: "center", height: "100%" }}>
                           {!tiny && (
-                            <span style={{ fontSize: narrow ? ".58em" : ".62em",
-                              color: c.faint, marginBottom: 2 }}>
+                            <span style={{ fontSize: narrow ? "0.6875rem" : "0.6875rem",
+                              color: c.faint, marginBottom: 0 }}>
                               {val >= 1000 ? Math.round(val) : val}
                             </span>
                           )}
-                          <span style={{ width: "82%", height: h, borderRadius: "3px 3px 0 0",
+                          <span style={{ width: "82%", height: h, borderRadius: "4px 4px 0 0",
                             background: fut ? "transparent" : c.good,
                             border: fut ? `1.5px dashed ${c.warn}` : "none", opacity: fut ? .9 : 1,
                             animation: `kp-rise .4s ${i * .035}s both` }} />
@@ -1593,9 +1629,9 @@ export default function KenyaPulse() {
                       );
                     })}
                   </div>
-                  <div style={{ display: "flex", gap: 3 }}>
+                  <div style={{ display: "flex", gap: 4 }}>
                     {F_YEARS.map(y => (
-                      <span key={y} style={{ flex: 1, textAlign: "center", fontSize: ".64em",
+                      <span key={y} style={{ flex: 1, textAlign: "center", fontSize: "0.6875rem",
                         color: y > m.actualTo ? c.warn : c.faint,
                         fontWeight: y > m.actualTo ? 600 : 400 }}>{String(y).slice(2)}</span>
                     ))}
@@ -1604,12 +1640,12 @@ export default function KenyaPulse() {
               );
             })}
             <Section title="What the forward view says" c={c} i={7} pad={narrow ? 16 : 18}>
-              <div style={{ fontSize: ".9em", display: "grid", gap: 9 }}>
+              <div style={{ fontSize: "0.875rem", display: "grid", gap: 8 }}>
                 <div>· Kenya grows near 5% to 2031, above the Sub-Saharan average of 4.4% throughout.</div>
                 <div>· Inflation settles around 5.5%, higher than the recent run but inside the band.</div>
-                <div>· <strong style={{ color: c.bad }}>Debt rises every single year to 74.6%</strong> — no inflection on anyone's numbers.</div>
+                <div>· <strong style={{ color: c.bad }}>Debt rises every single year to 74.6%</strong> - no inflection on anyone's numbers.</div>
                 <div>· World growth slows to 3.1%. Export demand and tourism take their cue from that.</div>
-                <div style={{ borderTop: `1px solid ${c.line}`, paddingTop: 9, color: c.dim }}>
+                <div style={{ borderTop: `1px solid ${c.line}`, paddingTop: 8, color: c.dim }}>
                   The state stays a heavy borrower in the domestic market for the whole horizon.
                   Domestic yields stay high enough to matter, which is why the top of the ladder is
                   government paper and likely stays there.
@@ -1622,15 +1658,15 @@ export default function KenyaPulse() {
           {tab === "data" && <>
             <Section title="Updates" c={c} i={0} pad={narrow ? 16 : 18}>
               <div style={{ display: "flex", justifyContent: "flex-end",
-                alignItems: "center", marginBottom: 10 }}>
+                alignItems: "center", marginBottom: 8 }}>
                 <Pill tone={data.source === "seed" ? "steady" : "good"} c={c}>
                   {data.source === "seed" ? "seeded" : "live"}
                 </Pill>
               </div>
-              <div style={{ fontSize: ".88em", color: c.dim, marginBottom: 14, lineHeight: 1.5 }}>
+              <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 12, lineHeight: 1.5 }}>
                 Readings sync automatically each time the app opens.
               </div>
-              {sync.msg && <div style={{ fontSize: ".84em", marginBottom: 12,
+              {sync.msg && <div style={{ fontSize: "0.875rem", marginBottom: 12,
                 color: sync.state === "err" ? c.bad : c.good }}>{sync.msg}</div>}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => pull(false)} className="kp-f kp-tap"
@@ -1655,22 +1691,22 @@ export default function KenyaPulse() {
                 <div key={d.id} style={{ padding: "12px 0", borderTop: n ? `1px solid ${c.line}` : "none" }}>
                   <div style={{ display: "flex", justifyContent: "space-between",
                     alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-                    <strong style={{ fontSize: ".93em" }}>{d.label}</strong>
+                    <strong style={{ fontSize: "0.875rem" }}>{d.label}</strong>
                     <Pill tone="watch" c={c}>{d.gapPct}% apart</Pill>
                   </div>
                   <div style={{ display: "flex", gap: 20, marginBottom: 8 }}>
                     <div>
-                      <div style={{ fontSize: ".71em", color: c.good, fontWeight: 600 }}>KEPT</div>
+                      <div style={{ fontSize: "0.75rem", color: c.good, fontWeight: 600 }}>KEPT</div>
                       <div style={{ fontWeight: 600 }}>{d.keptValue}</div>
-                      <div style={{ fontSize: ".74em", color: c.faint }}>{d.kept}</div>
+                      <div style={{ fontSize: "0.75rem", color: c.faint }}>{d.kept}</div>
                     </div>
                     <div style={{ opacity: .5 }}>
-                      <div style={{ fontSize: ".71em", color: c.dim, fontWeight: 600 }}>ALSO SEEN</div>
+                      <div style={{ fontSize: "0.75rem", color: c.dim, fontWeight: 600 }}>ALSO SEEN</div>
                       <div style={{ fontWeight: 600 }}>{d.otherValue}</div>
-                      <div style={{ fontSize: ".74em", color: c.faint }}>{d.other}</div>
+                      <div style={{ fontSize: "0.75rem", color: c.faint }}>{d.other}</div>
                     </div>
                   </div>
-                  <div style={{ fontSize: ".82em", color: c.dim }}>{d.why}</div>
+                  <div style={{ fontSize: "0.75rem", color: c.dim }}>{d.why}</div>
                 </div>
               ))}
             </Section>
@@ -1678,13 +1714,13 @@ export default function KenyaPulse() {
             <Section title="Sources" c={c} i={2} pad={narrow ? 16 : 18}
               note="If a source fails, the last good reading is carried forward and labelled with its age.">
               {SOURCES.map(s2 => (
-                <div key={s2.name} style={{ display: "flex", gap: 10, padding: "10px 0",
+                <div key={s2.name} style={{ display: "flex", gap: 8, padding: "10px 0",
                   borderBottom: `1px solid ${c.line}` }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 7, background: c.good,
-                    flexShrink: 0, marginTop: 6 }} />
+                  <span style={{ width: 7, height: 7, borderRadius: "var(--r-xs)", background: c.good,
+                    flexShrink: 0, marginTop: 4 }} />
                   <span style={{ flex: 1 }}>
-                    <span style={{ display: "block", fontWeight: 600, fontSize: ".9em" }}>{s2.name}</span>
-                    <span style={{ fontSize: ".76em", color: c.faint }}>{s2.covers}</span>
+                    <span style={{ display: "block", fontWeight: 600, fontSize: "0.875rem" }}>{s2.name}</span>
+                    <span style={{ fontSize: "0.75rem", color: c.faint }}>{s2.covers}</span>
                   </span>
                 </div>
               ))}
@@ -1693,7 +1729,7 @@ export default function KenyaPulse() {
 
             <Section title="Every reading" c={c} i={3} pad={narrow ? 16 : 18}>
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".82em" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
                   <thead>
                     <tr style={{ color: c.dim, textAlign: "left" }}>
                       <th style={{ padding: "6px 8px 6px 0", fontWeight: 600 }}>Indicator</th>
@@ -1724,14 +1760,14 @@ export default function KenyaPulse() {
             </Section>
 
             <Section title="On this device" c={c} i={4} pad={narrow ? 16 : 18}>
-              <div style={{ fontSize: ".85em", color: c.dim, lineHeight: 1.5 }}>
+              <div style={{ fontSize: "0.875rem", color: c.dim, lineHeight: 1.5 }}>
                 Your settings live on this device only, and no account is needed. Nothing
                 is sent anywhere unless you switch the daily notification on, which needs
                 an address to send to.
               </div>
               {store.report().ok === false && (
-                <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
-                  background: c.chip, fontSize: ".84em", color: c.bad }}>
+                <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: "var(--r-sm)",
+                  background: c.chip, fontSize: "0.875rem", color: c.bad }}>
                   <strong>Nothing is being saved.</strong> This usually means private
                   browsing, or site data blocked for this address. The app still works,
                   but your settings will last only until you close it.
@@ -1742,12 +1778,12 @@ export default function KenyaPulse() {
         </div>
 
         {/* ---------------- footer ---------------- */}
-        <div style={{ marginTop: 34, paddingBottom: 8, textAlign: "center" }}>
+        <div style={{ marginTop: 32, paddingBottom: 8, textAlign: "center" }}>
           <a href="https://gachichio.org/kenya-pulse" target="_blank" rel="noopener noreferrer"
             className="kp-f kp-tap"
-            style={{ display: "inline-flex", alignItems: "center", gap: 7,
-              padding: "10px 18px", borderRadius: 22, background: c.chip,
-              color: c.cool, fontWeight: 600, textDecoration: "none", fontSize: ".88em",
+            style={{ display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "10px 18px", borderRadius: "var(--r-full)", background: c.chip,
+              color: c.cool, fontWeight: 600, textDecoration: "none", fontSize: "0.875rem",
               minHeight: 44, transition: "opacity .2s" }}
             onMouseEnter={e => { e.currentTarget.style.opacity = ".8"; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
@@ -1759,20 +1795,20 @@ export default function KenyaPulse() {
       {/* ================= SETTINGS ================= */}
       {openSettings && (
         <div onClick={() => setOpenSettings(false)} role="dialog" aria-modal="true"
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 50,
+          style={{ position: "fixed", inset: 0, background: "color-mix(in srgb, var(--md-on-surface) 40%, transparent)", zIndex: 50,
             display: "flex", alignItems: "flex-end", justifyContent: "center",
             animation: "kp-veil .28s both" }} className="kp-veil">
           <div onClick={e => e.stopPropagation()}
             style={{ background: c.bg, width: "100%", maxWidth: 720, maxHeight: "90vh",
-              overflowY: "auto", borderRadius: "20px 20px 0 0",
+              overflowY: "auto", borderRadius: "var(--r-xl) var(--r-xl) 0 0",
               padding: narrow ? "18px 12px 30px" : "20px 16px 34px",
               paddingBottom: "max(34px, env(safe-area-inset-bottom))",
-              animation: "kp-sheet .42s cubic-bezier(.32,.72,0,1) both" }}>
-            <div style={{ width: 36, height: 5, borderRadius: 5, background: c.line,
+              animation: "kp-sheet .42s var(--ease-emphasized) both" }}>
+            <div style={{ width: 36, height: 5, borderRadius: 4, background: c.line,
               margin: "0 auto 18px" }} />
             <div style={{ display: "flex", justifyContent: "space-between",
               alignItems: "center", marginBottom: 24 }}>
-              <span style={{ fontSize: "1.35em", fontWeight: 600,
+              <span style={{ fontSize: "1.375rem", fontWeight: 600,
                 letterSpacing: "-.025em" }}>Settings</span>
               <button onClick={() => setOpenSettings(false)} className="kp-f kp-tap"
                 style={S.icon} aria-label="Close"><CloseGlyph /></button>
@@ -1784,7 +1820,7 @@ export default function KenyaPulse() {
             </Row>
             <Row label="Text size" c={c}>
               <Seg value={cfg.size} onChange={v => set("size", v)} c={c}
-                opts={[["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]]} />
+                opts={SCALES} />
             </Row>
             <Row label="Sync on open" hint="Fetch the latest readings each time the app starts." c={c}>
               <Toggle on={cfg.autoSync} onChange={v => set("autoSync", v)} c={c} />
@@ -1792,32 +1828,32 @@ export default function KenyaPulse() {
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Daily notification</div>
             {pushCap === "install-first" ? (
-              <div style={{ fontSize: ".84em", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
-                Add Kenya Pulse to your home screen first — the share button in Safari,
+              <div style={{ fontSize: "0.875rem", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
+                Add Kenya Pulse to your home screen first - the share button in Safari,
                 then <strong style={{ color: c.dim, fontWeight: 600 }}>Add to Home Screen</strong>.
                 Open it from there and this setting appears. iPhones only deliver
                 notifications to an installed app.
               </div>
             ) : pushCap === "unsupported" ? (
-              <div style={{ fontSize: ".84em", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
+              <div style={{ fontSize: "0.875rem", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
                 This browser cannot receive notifications. Chrome, Edge and Firefox can, as
                 can an iPhone once the app is on the home screen.
               </div>
             ) : (
               <>
                 <Row label="Daily briefing"
-                  hint="One notification at your chosen time, on the days you choose, sent from the server — so it arrives whether the app is open or closed. Tap it to open the briefing."
+                  hint="One notification at your chosen time, on the days you choose, sent from the server - so it arrives whether the app is open or closed. Tap it to open the briefing."
                   c={c}>
                   <Toggle on={cfg.notifyOn} onChange={enableNotify} c={c} />
                 </Row>
                 {notePerm === "denied" && (
-                  <div style={{ fontSize: ".84em", color: c.bad, marginBottom: 24 }}>
+                  <div style={{ fontSize: "0.875rem", color: c.bad, marginBottom: 24 }}>
                     Notifications are blocked for this site. Allow them in the browser's
                     site settings, then switch this on again.
                   </div>
                 )}
                 {noteState.msg && (
-                  <div style={{ fontSize: ".84em", marginBottom: 24, lineHeight: 1.5,
+                  <div style={{ fontSize: "0.875rem", marginBottom: 24, lineHeight: 1.5,
                     color: noteState.state === "err" ? c.bad
                       : noteState.state === "ok" ? c.good : c.dim }}>
                     {noteState.msg}
@@ -1828,12 +1864,12 @@ export default function KenyaPulse() {
                     <Row label="Time of day" c={c}>
                       <input type="time" value={cfg.notifyTime}
                         onChange={e => set("notifyTime", e.target.value || "08:00")}
-                        style={{ padding: "10px 12px", borderRadius: 10,
+                        style={{ padding: "10px 12px", borderRadius: "var(--r-sm)",
                           border: `1px solid ${c.line}`, background: c.card,
-                          color: c.ink, fontSize: ".95em" }} />
+                          color: c.ink, fontSize: "0.875rem" }} />
                     </Row>
                     <Row label="Days" hint="Deselect all to pause without switching off." c={c}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {[["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4],
                           ["Fri", 5], ["Sat", 6], ["Sun", 0]].map(([l, d]) => {
                           const on = (cfg.notifyDays || []).includes(d);
@@ -1842,7 +1878,7 @@ export default function KenyaPulse() {
                               onClick={() => set("notifyDays", on
                                 ? cfg.notifyDays.filter(x => x !== d)
                                 : [...(cfg.notifyDays || []), d])}
-                              style={{ padding: "8px 12px", borderRadius: 9, fontSize: ".82em",
+                              style={{ padding: "8px 12px", borderRadius: "var(--r-sm)", fontSize: "0.75rem",
                                 cursor: "pointer", minHeight: 40,
                                 border: `1px solid ${on ? c.good : c.line}`,
                                 background: on ? c.good : "transparent",
@@ -1854,7 +1890,7 @@ export default function KenyaPulse() {
                         })}
                       </div>
                     </Row>
-                    <div style={{ fontSize: ".84em", color: c.dim, marginTop: -12,
+                    <div style={{ fontSize: "0.875rem", color: c.dim, marginTop: -12,
                       marginBottom: 24, lineHeight: 1.5 }}>
                       {whenPhrase(nextBriefing(cfg.notifyTime, cfg.notifyDays, now), now)}
                       {" "}A time that has already passed today waits until its next day.
@@ -1866,7 +1902,7 @@ export default function KenyaPulse() {
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Tax assumptions</div>
             <Row label={`Treasury bills and deposits · ${cfg.taxBill}%`}
-              hint="Tax practices say 15%. One retail source claims bills are exempt for individuals — set what your own advice says." c={c}>
+              hint="Tax practices say 15%. One retail source claims bills are exempt for individuals - set what your own advice says." c={c}>
               <input type="range" min="0" max="30" step="1" value={cfg.taxBill}
                 onChange={e => set("taxBill", +e.target.value)}
                 style={{ width: "100%", accentColor: c.good }} />
@@ -1890,14 +1926,14 @@ export default function KenyaPulse() {
               <Toggle on={cfg.compact} onChange={v => set("compact", v)} c={c} />
             </Row>
             <Row label="Pinned to the top" hint="Choose up to four." c={c}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                 {inds.map(i => {
                   const on = cfg.pinned.includes(i.id);
                   return (
                     <button key={i.id} className="kp-f kp-tap"
                       onClick={() => set("pinned", on ? cfg.pinned.filter(x => x !== i.id)
                         : cfg.pinned.length < 4 ? [...cfg.pinned, i.id] : cfg.pinned)}
-                      style={{ padding: "6px 11px", borderRadius: 9, fontSize: ".8em", cursor: "pointer",
+                      style={{ padding: "6px 11px", borderRadius: "var(--r-sm)", fontSize: "0.75rem", cursor: "pointer",
                         border: `1px solid ${on ? c.good : c.line}`,
                         background: on ? c.good : "transparent", color: on ? "#fff" : c.dim,
                         fontWeight: on ? 600 : 500, transition: "background .18s, color .18s" }}>
@@ -1908,7 +1944,7 @@ export default function KenyaPulse() {
               </div>
             </Row>
 
-            <div style={{ fontSize: ".78em", color: c.faint, marginTop: 22, lineHeight: 1.6 }}>
+            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 20, lineHeight: 1.6 }}>
               Settings are stored on this device only, and no account is needed. The daily
               notification is the one exception: switching it on sends this device's
               notification address, your chosen time and days, and your timezone to the
@@ -1925,19 +1961,19 @@ export default function KenyaPulse() {
    inside it. That single change is most of what makes a list feel native. */
 function Section({ title, note, children, c, i = 0, pad = 16, style }) {
   return (
-    <div style={{ minWidth: 0, animation: `kp-rise .42s ${i * 0.05}s both cubic-bezier(.32,.72,0,1)` }}>
+    <div style={{ minWidth: 0, animation: `kp-rise .42s ${i * 0.05}s both var(--ease-emphasized)` }}>
       {title && (
-        <div style={{ fontSize: ".76em", fontWeight: 600, letterSpacing: ".02em",
+        <div style={{ fontSize: "0.75rem", fontWeight: 600, letterSpacing: ".02em",
           color: c.dim, padding: "0 16px 7px", textTransform: "uppercase" }}>
           {title}
         </div>
       )}
-      <div style={{ background: c.card, borderRadius: 18, padding: pad,
+      <div style={{ background: c.card, borderRadius: "var(--r-lg)", padding: pad,
         boxShadow: c.shadow, minWidth: 0, overflow: "hidden", ...style }}>
         {children}
       </div>
       {note && (
-        <div style={{ fontSize: ".76em", color: c.faint, padding: "8px 16px 0",
+        <div style={{ fontSize: "0.75rem", color: c.faint, padding: "8px 16px 0",
           lineHeight: 1.45 }}>{note}</div>
       )}
     </div>
@@ -1948,9 +1984,9 @@ function Section({ title, note, children, c, i = 0, pad = 16, style }) {
 function Row({ label, hint, children, c }) {
   return (
     <div style={{ marginBottom: 24 }}>
-      <div style={{ fontWeight: 500, marginBottom: hint ? 3 : 10, fontSize: ".95em",
+      <div style={{ fontWeight: 500, marginBottom: hint ? 3 : 10, fontSize: "0.875rem",
         letterSpacing: "-.012em" }}>{label}</div>
-      {hint && <div style={{ fontSize: ".8em", color: c.faint, marginBottom: 10,
+      {hint && <div style={{ fontSize: "0.75rem", color: c.faint, marginBottom: 8,
         lineHeight: 1.45 }}>{hint}</div>}
       {children}
     </div>
@@ -1958,14 +1994,14 @@ function Row({ label, hint, children, c }) {
 }
 function Seg({ value, onChange, opts, c }) {
   return (
-    <div style={{ display: "flex", background: c.seg, borderRadius: 10, padding: 2 }}>
+    <div style={{ display: "flex", background: c.seg, borderRadius: "var(--r-sm)", padding: 0 }}>
       {opts.map(([v, l]) => (
         <button key={v} onClick={() => onChange(v)} className="kp-f"
-          style={{ flex: 1, padding: "8px 4px", border: "none", borderRadius: 8, cursor: "pointer",
+          style={{ flex: 1, padding: "8px 4px", border: "none", borderRadius: "var(--r-xs)", cursor: "pointer",
             background: value === v ? c.segOn : "transparent",
-            color: value === v ? c.ink : c.dim, fontWeight: 600, fontSize: ".87em",
+            color: value === v ? c.ink : c.dim, fontWeight: 600, fontSize: "0.875rem",
             boxShadow: value === v ? c.segShadow : "none",
-            transition: "background .22s cubic-bezier(.32,.72,0,1), color .2s" }}>{l}</button>
+            transition: "background .22s var(--ease-emphasized), color .2s" }}>{l}</button>
       ))}
     </div>
   );
@@ -1973,18 +2009,18 @@ function Seg({ value, onChange, opts, c }) {
 function Toggle({ on, onChange, c }) {
   return (
     <button onClick={() => onChange(!on)} className="kp-f" aria-pressed={on} role="switch"
-      style={{ width: 51, height: 44, borderRadius: 31, border: "none", cursor: "pointer",
+      style={{ width: 51, height: 44, borderRadius: "var(--r-full)", border: "none", cursor: "pointer",
         background: "transparent", position: "relative", flexShrink: 0, padding: 0,
         display: "grid", placeItems: "center",
-        transition: "background .28s cubic-bezier(.32,.72,0,1)" }}>
-      <span style={{ width: 51, height: 31, borderRadius: 31, position: "relative",
+        transition: "background .28s var(--ease-emphasized)" }}>
+      <span style={{ width: 51, height: 31, borderRadius: "var(--r-full)", position: "relative",
         background: on ? c.good : c.chip,
-        transition: "background .28s cubic-bezier(.32,.72,0,1)" }}>
+        transition: "background .28s var(--ease-emphasized)" }}>
         <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27,
-          borderRadius: 27, background: "#fff",
+          borderRadius: "var(--r-full)", background: "#fff",
           transform: on ? "translateX(20px)" : "none",
-          transition: "transform .28s cubic-bezier(.32,.72,0,1)",
-          boxShadow: "0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16)" }} />
+          transition: "transform .28s var(--ease-emphasized)",
+          boxShadow: "var(--md-elevation-2)" }} />
       </span>
     </button>
   );
@@ -2048,10 +2084,10 @@ function mergeFeed(seed, feed) {
    above this in the Briefing card; the copy button carries both. */
 function buildBrief(inds, ladder, breaks, asOf) {
   const g = Object.fromEntries(inds.map(i => [i.id, i]));
-  const f = id => g[id] ? `${g[id].value}${g[id].unit}` : "—";
+  const f = id => g[id] ? `${g[id].value}${g[id].unit}` : "-";
   const best = ladder[0], worst = ladder[ladder.length - 1];
   const off = breaks.filter(b => b.state !== "normal");
-  const L = [`KENYA PULSE — ${asOf}`,
+  const L = [`KENYA PULSE - ${asOf}`,
     `Policy ${f("cbr")} · Inflation ${f("inflation")} · KES/USD ${f("kes_usd")}`,
     `Best after tax and inflation: ${best.label} ${best.real > 0 ? "+" : ""}${best.real.toFixed(2)}% · ${worst.label} ${worst.real.toFixed(2)}%`,
     `Debt ${f("debt_gdp")} of GDP · Debt service ${f("debtserv")} of revenue`];

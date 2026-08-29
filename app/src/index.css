@@ -1,1 +1,116 @@
-body{margin:0}
+/* ===========================================================================
+   Kenya Pulse — tokens
+   design.md v1.1 · brand green #237352 at Material tone 40
+
+   Every colour, size and radius in the app resolves to something declared
+   here. The component file holds no hex values: light and dark are two sets
+   of the same token names, and the class on <html> decides which is live.
+=========================================================================== */
+
+/* --- fonts, self-hosted; no third-party request on first paint ----------- */
+@import '@fontsource-variable/inter';
+@import '@fontsource/courier-prime/400.css';
+
+:root {
+  color-scheme: light dark;
+
+  /* --- 4.2 role tokens, light ------------------------------------------ */
+  --md-primary: #237352;
+  --md-on-primary: #FFFFFF;
+  --md-primary-container: #C4EEDC;
+  --md-on-primary-container: #081C13;
+  --md-secondary: #49695C;
+  --md-on-secondary: #FFFFFF;
+  --md-tertiary: #3E6774;
+  --md-on-tertiary: #FFFFFF;
+  --md-error: #BA1A1A;
+  --md-on-error: #FFFFFF;
+
+  --md-surface: #F7FAF8;
+  --md-on-surface: #171D1A;
+  --md-on-surface-variant: #3F4945;
+  --md-outline: #6F7975;
+  --md-outline-variant: #BFC9C4;
+
+  --md-surface-container-lowest: #FFFFFF;
+  --md-surface-container-low: #F1F5F2;
+  --md-surface-container: #EBEFEC;
+  --md-surface-container-high: #E5EAE7;
+
+  /* --- 5. elevation ---------------------------------------------------- */
+  --md-elevation-0: none;
+  --md-elevation-1: 0 1px 2px 0 rgb(0 0 0 / .10), 0 1px 3px 1px rgb(0 0 0 / .06);
+  --md-elevation-2: 0 1px 2px 0 rgb(0 0 0 / .10), 0 2px 6px 2px rgb(0 0 0 / .06);
+  --md-elevation-3: 0 1px 3px 0 rgb(0 0 0 / .12), 0 4px 8px 3px rgb(0 0 0 / .08);
+
+  /* --- 7. shape -------------------------------------------------------- */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 20px;    /* card default */
+  --r-xl: 28px;    /* sheets */
+  --r-full: 9999px;
+
+  /* --- 9.1 motion ------------------------------------------------------ */
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(.32, .72, 0, 1);
+
+  /* --- 12.2 font scale ------------------------------------------------- */
+  --font-scale: 1;
+
+  /* --- 6. type: two families, no third --------------------------------- */
+  --font-ui: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-narrative: 'Courier Prime', 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* Dark is the same names with different values. Nothing in the component
+   changes; the class on <html> does the switching. */
+:root.dark {
+  --md-primary: #88DDBA;
+  --md-on-primary: #113928;
+  --md-primary-container: #174F38;
+  --md-on-primary-container: #C4EEDC;
+  --md-secondary: #AFCCC0;
+  --md-on-secondary: #1B3529;
+  --md-tertiary: #A6CCDA;
+  --md-on-tertiary: #093642;
+  --md-error: #FFB4AB;
+  --md-on-error: #690005;
+
+  --md-surface: #0F1512;
+  --md-on-surface: #DFE4E1;
+  --md-on-surface-variant: #BFC9C4;
+  --md-outline: #89938E;
+  --md-outline-variant: #3F4945;
+
+  --md-surface-container-lowest: #0A100D;
+  --md-surface-container-low: #171D1A;
+  --md-surface-container: #1B211E;
+  --md-surface-container-high: #262B28;
+
+  /* 14. no drop shadows in dark below elevation 3 */
+  --md-elevation-1: none;
+  --md-elevation-2: none;
+}
+
+[data-font-scale="compact"] { --font-scale: .9375; }
+[data-font-scale="large"]   { --font-scale: 1.125; }
+[data-font-scale="xlarge"]  { --font-scale: 1.25; }
+
+/* rem resolves against the browser's own default, so the reader's own
+   accessibility setting is respected and then scaled. */
+html {
+  font-size: calc(1rem * var(--font-scale));
+  background: var(--md-surface);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  /* tnum is not optional: tabular figures stop money columns dancing */
+  font-feature-settings: 'cv11', 'ss01', 'tnum';
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+}

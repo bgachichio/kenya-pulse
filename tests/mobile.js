@@ -1,4 +1,6 @@
-const babel=require('/home/claude/node_modules/@babel/core');
+// the app keeps a 30s clock interval; unref it so a finished suite exits
+{const _si=setInterval;global.setInterval=(...a)=>{const t=_si(...a);t&&t.unref&&t.unref();return t;};}
+const babel=require('@babel/core');
 const fs=require('fs');
 let WIDTH=412;
 global.window={
@@ -9,13 +11,13 @@ global.window={
   get innerWidth(){return WIDTH;}
 };
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
-global.document={createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
+global.document = { documentElement: { classList: { toggle() {} }, dataset: {}, style: {} },createElement:()=>({style:{},select(){},remove(){},appendChild(){}}),
   body:{appendChild(){},removeChild(){}},execCommand:()=>true};
 global.fetch=async()=>({ok:true,status:200,json:async()=>({})});
-const src=fs.readFileSync('/mnt/user-data/outputs/KenyaPulse.jsx','utf8');
+const src=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8');
 fs.writeFileSync('m.js',babel.transformSync(src,{presets:[
-  ['/home/claude/node_modules/@babel/preset-env',{targets:{node:'current'}}],
-  ['/home/claude/node_modules/@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
+  ['@babel/preset-env',{targets:{node:'current'},modules:'commonjs'}],
+  ['@babel/preset-react',{runtime:'classic'}]],filename:'k.jsx'}).code);
 
 const React=require('react'),TR=require('react-test-renderer');
 const App=require('./m.js').default;

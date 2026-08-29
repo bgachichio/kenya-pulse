@@ -6,7 +6,22 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#237352" />
+    <meta name="color-scheme" content="light dark" />
     <title>Kenya Pulse</title>
+    <!-- design.md 12.1: theme and scale applied before the first stylesheet,
+         so nobody sees a flash of the wrong one. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('ui.theme') || 'system';
+          var dark = t === 'dark' || (t === 'system' &&
+            matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.dataset.fontScale =
+            localStorage.getItem('ui.fontScale') || 'default';
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
