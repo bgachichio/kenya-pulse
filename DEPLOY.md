@@ -194,12 +194,17 @@ per indicator naming where its figure came from. What to look for:
 
 | In the output | What it means | What to do |
 |---|---|---|
-| `serrari bills   0  (none)  <- returned nothing` | the auction table moved | fix `src_serrari_bills`, or type the rate into the sheet |
-| `tbill182 ... <- fell back` | the live source failed, a typed figure is standing in | same |
+| `cbk bills   0  (none)  <- returned nothing` | CBK's table moved | fix `src_cbk_bills` — the log line names the headers it did find |
+| `tbill182 ... <- fell back` | the first-choice source failed and a lower one is standing in | fix that source |
+| `tbill182 ... <- SOURCE IS STALE` | the source answered, and its figure is weeks old | **collecting more often will not help** — the publisher has stopped |
+| `tbill182 ... <- fell back, SOURCE IS STALE` | both: the first choice is gone and the stand-in is behind | this is what the 182-day looked like in September |
+| `... <- no date` | typed, but with no date, so its age cannot be judged | date it in the sheet |
 | `tbill182 ... <- MISSING` | no source and no typed figure | type one |
 | every indicator named against its live source | working | nothing |
 
-This is the command to run first when a rate looks frozen.
+This is the command to run first when a rate looks frozen. The `AS OF` column
+is the reading's own publication date, not when it was fetched — which is the
+distinction that took a week to spot by hand.
 
 ## A4 · Dry run — read the ladder before writing anything
 

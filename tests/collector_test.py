@@ -6,7 +6,9 @@ dependencies stubbed, and the arithmetic is checked directly.
 
 Run:  python3 tests/collector_test.py
 """
+import contextlib
 import importlib.util
+import io
 import re
 import sys
 import types
@@ -15,17 +17,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "kenya_pulse.py"
 
-# bs4, lxml and requests are only needed by the fetchers, which nothing here
-# calls. Stubbing them keeps this suite runnable with no dependencies at all.
-for name in ("requests", "bs4", "lxml"):
-    if name not in sys.modules:
+# The fetchers need requests, bs4 and lxml; nothing here makes a network call,
+# so requests is always stubbed. bs4 and lxml are used for real when they are
+# installed, because the HTML parsers below have to be exercised against a real
+# parse tree - a stub would test nothing. Without them those checks are skipped
+# and say so, rather than passing quietly.
+HAVE_BS4 = True
+try:
+    import bs4  # noqa: F401
+    import lxml  # noqa: F401
+except ImportError:
+    HAVE_BS4 = False
+    for name in ("bs4", "lxml"):
         mod = types.ModuleType(name)
         if name == "bs4":
             mod.BeautifulSoup = object
-        if name == "requests":
-            mod.get = mod.post = lambda *a, **k: None
-            mod.exceptions = types.SimpleNamespace(RequestException=Exception)
         sys.modules[name] = mod
+if "requests" not in sys.modules:
+    mod = types.ModuleType("requests")
+    mod.get = mod.post = lambda *a, **k: None
+    mod.exceptions = types.SimpleNamespace(RequestException=Exception)
+    sys.modules["requests"] = mod
 
 spec = importlib.util.spec_from_file_location("kenya_pulse", SRC)
 kp = importlib.util.module_from_spec(spec)
@@ -83,6 +95,118 @@ ok("an unmoved reading reports no change", row["delta"] == 0.0, str(row["delta"]
 ok("and adds no point to the line", row["hist"] == [7.0, 6.8, 6.5], str(row["hist"]))
 ok("and is scored steady", row["state"] == "steady", row["state"])
 
+print("\n── READING CBK'S TREASURY BILL TABLE")
+# The page cannot be reached from a build machine, so this cannot prove the
+# scraper matches CBK's live markup - only the run on the VM does that. What it
+# does prove is that the parser handles both shapes such a table is published
+# in, picks the newest auction rather than the first row it meets, refuses a
+# figure no bill could pay, and says what it saw when it finds nothing.
+if not HAVE_BS4:
+    print("  ! skipped: beautifulsoup4 and lxml are not installed")
+    print("    pip install -r tests/requirements-test.txt")
+else:
+    from bs4 import BeautifulSoup
+
+    _real_get = kp.get
+
+    def parse(html):
+        """Drive src_cbk_bills against a page, with no network."""
+        kp.get = lambda *a, **k: types.SimpleNamespace(text=html)
+        return kp.src_cbk_bills()
+
+    # --- shape one: a row per tenor -----------------------------------------
+    long_html = """
+    <table>
+      <tr><th>Issue No</th><th>Tenor</th><th>Auction Date</th>
+          <th>Amount Offered</th><th>Weighted Average Rate</th></tr>
+      <tr><td>2612/091</td><td>91 Day</td><td>2026-08-28</td><td>4,000</td><td>8.9123</td></tr>
+      <tr><td>2612/182</td><td>182 Day</td><td>2026-08-28</td><td>10,000</td><td>9.4567</td></tr>
+      <tr><td>2612/364</td><td>364 Day</td><td>2026-08-28</td><td>10,000</td><td>10.1234</td></tr>
+      <tr><td>2611/182</td><td>182 Day</td><td>2026-08-21</td><td>10,000</td><td>9.4001</td></tr>
+    </table>"""
+    got = parse(long_html)
+    ok("a row-per-tenor table gives all three tenors",
+       {"tbill", "tbill182", "tbill364"} <= set(got), str(got))
+    ok("the 91-day is read", abs(got.get("tbill", 0) - 8.9123) < 1e-6, str(got.get("tbill")))
+    ok("the 182-day is read", abs(got.get("tbill182", 0) - 9.4567) < 1e-6, str(got.get("tbill182")))
+    ok("the 364-day is read", abs(got.get("tbill364", 0) - 10.1234) < 1e-6, str(got.get("tbill364")))
+    ok("the newest auction wins, not the first row met",
+       abs(got["tbill182"] - 9.4567) < 1e-6, str(got["tbill182"]))
+    ok("the auction date travels with the rate", got.get("_asof") == "2026-08-28", str(got.get("_asof")))
+
+    # the same shape, with the column called something else. CBK is not
+    # consistent about this across its own pages.
+    term_html = long_html.replace("Tenor", "Term").replace("Weighted Average Rate",
+                                                           "Average Yield")
+    got = parse(term_html)
+    ok("a Term column is read like a Tenor column",
+       abs(got.get("tbill182", 0) - 9.4567) < 1e-6, str(got))
+    ok("and an Average Yield column like an Average Rate column",
+       {"tbill", "tbill182", "tbill364"} <= set(got), str(got))
+
+    # --- shape two: a column per tenor --------------------------------------
+    wide_html = """
+    <table>
+      <tr><th>Auction Date</th><th>91 Day</th><th>182 Day</th><th>364 Day</th></tr>
+      <tr><td>14/08/2026</td><td>8.70</td><td>9.20</td><td>9.90</td></tr>
+      <tr><td>28/08/2026</td><td>8.91</td><td>9.46</td><td>10.12</td></tr>
+      <tr><td>21/08/2026</td><td>8.80</td><td>9.30</td><td>10.00</td></tr>
+    </table>"""
+    got = parse(wide_html)
+    ok("a column-per-tenor table also works",
+       {"tbill", "tbill182", "tbill364"} <= set(got), str(got))
+    ok("it takes the newest row wherever it sits in the table",
+       abs(got.get("tbill182", 0) - 9.46) < 1e-6, str(got.get("tbill182")))
+    ok("and dates it from that row", got.get("_asof") == "2026-08-28", str(got.get("_asof")))
+
+    # --- dates, in the shapes CBK writes them -------------------------------
+    ok("ISO dates parse", kp._parse_date("2026-07-16") == "2026-07-16")
+    ok("day-first slashes parse", kp._parse_date("16/07/2026") == "2026-07-16")
+    ok("day-first dashes parse", kp._parse_date("16-07-2026") == "2026-07-16")
+    ok("written months parse", kp._parse_date("16 July 2026") == "2026-07-16")
+    ok("short months parse", kp._parse_date("16 Jul 2026") == "2026-07-16")
+    ok("a date that is not one gives nothing, rather than today",
+       kp._parse_date("n/a") is None and kp._parse_date("") is None)
+    ok("an impossible date is refused", kp._parse_date("31/02/2026") is None)
+
+    # --- a rate has to be a rate -------------------------------------------
+    ok("a percentage sign does not break it", abs(kp._rate("9.46 %") - 9.46) < 1e-9)
+    ok("an amount column is not mistaken for a rate", kp._rate("10,000") is None)
+    ok("an issue number is not mistaken for a rate", kp._rate("2612/091") is None)
+    ok("a bill cannot pay 300%", kp._rate("300") is None)
+    ok("nor nothing at all", kp._rate("0") is None and kp._rate("-") is None)
+
+    # --- failure has to be loud --------------------------------------------
+    empty = parse("<html><body><p>Downloads temporarily unavailable</p></body></html>")
+    ok("a page with no table yields nothing rather than a wrong number", empty == {}, str(empty))
+
+    wrong = parse("""
+    <table><tr><th>Bond</th><th>Coupon</th><th>Maturity</th></tr>
+    <tr><td>FXD1</td><td>13.2</td><td>2032</td></tr>
+    <tr><td>FXD2</td><td>12.9</td><td>2035</td></tr></table>""")
+    ok("the wrong table is not mistaken for the right one", wrong == {}, str(wrong))
+
+    # and it has to say what it saw, or the next failure is another long hunt
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        parse("<table><tr><th>Bond</th><th>Coupon</th></tr>"
+              "<tr><td>a</td><td>1</td></tr><tr><td>b</td><td>2</td></tr></table>")
+    said = buf.getvalue()
+    ok("and it names the headers it did find", "headers seen" in said and "Bond" in said, said.strip())
+
+    # --- a stale auction is still returned, and still dated -----------------
+    stale = parse("""
+    <table><tr><th>Tenor</th><th>Auction Date</th><th>Average Rate</th></tr>
+    <tr><td>182 Day</td><td>16/07/2026</td><td>8.97</td></tr>
+    <tr><td>364 Day</td><td>16/07/2026</td><td>9.04</td></tr>
+    <tr><td>91 Day</td><td>16/07/2026</td><td>8.77</td></tr></table>""")
+    ok("a stale auction is reported with its real date, not suppressed",
+       stale.get("tbill182") == 8.97 and stale.get("_asof") == "2026-07-16", str(stale))
+
+    # put the fetcher back: leaving it stubbed makes every later scenario read
+    # whichever page this block happened to feed it last
+    kp.get = _real_get
+
 print("\n── A DAILY FAST PASS MUST NOT DAMAGE THE SLOW SERIES")
 # The schedule in DEPLOY.md A6 runs --fast daily and the full sweep weekly. A
 # fast row simply omits the indicators it does not collect, so an annual figure
@@ -118,8 +242,15 @@ ok("a weekly figure goes stale in under a fortnight",
    kp.STALE_DAYS["weekly"] <= 12, str(kp.STALE_DAYS["weekly"]))
 ok("a typed 182-day rate is not allowed to stand for three weeks",
    kp.MANUAL_CADENCE["tbill182"] <= 10, str(kp.MANUAL_CADENCE["tbill182"]))
-ok("its live source is the auction scraper, with typing as the fallback",
-   kp.PRECEDENCE["tbill182"] == ["sbills", "manual"], str(kp.PRECEDENCE["tbill182"]))
+ok("CBK is asked first, Serrari second, typing last",
+   kp.PRECEDENCE["tbill182"] == ["cbkbills", "sbills", "manual"],
+   str(kp.PRECEDENCE["tbill182"]))
+ok("the 91-day keeps the homepage rate first",
+   kp.PRECEDENCE["tbill"][0] == "cbk", str(kp.PRECEDENCE["tbill"]))
+ok("all three tenors have two independent live sources",
+   all(len([x for x in kp.PRECEDENCE[k] if x != "manual"]) >= 2
+       for k in ("tbill", "tbill182", "tbill364")),
+   str({k: kp.PRECEDENCE[k] for k in ("tbill", "tbill182", "tbill364")}))
 ok("a plausible range is enforced on it", kp.PLAUSIBLE["tbill182"] == (0, 40))
 
 print("\n── EVERY REGISTERED INDICATOR CAN ACTUALLY BE FILLED")
@@ -144,9 +275,6 @@ print("\n── THE SOURCE REPORT ACTUALLY RUNS")
 # Not "the string is in the file" - the function is executed with every fetcher
 # stubbed, including one that fails, and its output is read back. This is the
 # command someone runs when a rate looks frozen; it has to work.
-import io
-import contextlib
-
 kp.src_cbk = lambda: {"cbr": 8.75, "inflation": 6.49, "kes_usd": 129.34,
                       "tbill": 8.77, "lending": 14.38, "deposit": 6.84,
                       "savings": 3.32, "kesonia": 8.75, "repo": 9.25,
@@ -156,7 +284,8 @@ kp.src_nse = lambda: {"nasi": 145.2, "nse20": 2400.0, "nse25": 4100.0,
 kp.src_fred = lambda: {"fed_funds": 4.33, "us10y": 4.63}
 kp.src_serrari = lambda: {"mmf_top": 12.1, "mmf_avg": 10.4}
 kp.src_serrari_bonds = lambda: {"bond10": 13.5, "infra": 12.8}
-kp.src_serrari_bills = lambda: {}          # the 182-day scraper, broken
+kp.src_cbk_bills = lambda: {}             # CBK not answering
+kp.src_serrari_bills = lambda: {}          # and Serrari's scraper broken too
 kp.src_te = lambda: ({"pmi": 50.1}, {})
 kp.src_fx = lambda: {}
 kp.src_imf = lambda: ({}, {})
@@ -222,12 +351,29 @@ ok("its age in days is shown beside it",
 ok("and it is called out rather than left to be noticed",
    re.search(r"tbill182.*SOURCE IS STALE", out2) is not None,
    [l for l in out2.splitlines() if "tbill182" in l])
+ok("both faults are shown, not just the first - CBK gave nothing AND "
+   "the source that answered is weeks behind",
+   re.search(r"tbill182.*fell back, SOURCE IS STALE", out2) is not None,
+   [l for l in out2.splitlines() if "tbill182" in l])
 ok("the summary says plainly that collecting more often will not help",
    "collecting more often will not move these" in out2, "")
 ok("a value is still reported - it is stale, not missing",
    re.search(r"tbill182\s+8\.97", out2) is not None, "")
-ok("it is NOT reported as having fallen back, because the scraper worked",
-   not re.search(r"tbill182.*fell back", out2), "")
+# and when CBK itself answers with a stale auction, that is stale only - it
+# did not fall back to anything
+kp.src_cbk_bills = lambda: {"tbill182": 8.97, "tbill364": 9.04,
+                            "_asof": "2026-07-16"}
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    kp.sources_report()
+out3 = buf.getvalue()
+ok("a first-choice source that is stale is marked stale, not fallen back",
+   re.search(r"tbill182.*SOURCE IS STALE", out3) is not None
+   and not re.search(r"tbill182.*fell back", out3),
+   [l for l in out3.splitlines() if "tbill182" in l])
+ok("and the date shown is CBK's own auction date",
+   re.search(r"tbill182.*2026-07-16", out3) is not None, "")
+kp.src_cbk_bills = lambda: {}
 
 # and the three problems stay apart
 ok("a figure typed with a recent date is not flagged",

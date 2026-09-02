@@ -65,7 +65,7 @@ computed styles back in light, dark and at `xlarge`.
 
 The app predates design.md v1.1 and is one 2,000-line file with no build-time
 CSS. Moving it onto Tailwind and shadcn means rewriting every element and
-re-authoring 591 assertions against new markup, on an app that is live and
+re-authoring 622 assertions against new markup, on an app that is live and
 carries a daily notification people rely on. The gain is conformance; the cost
 is a rewrite and a real chance of regression.
 

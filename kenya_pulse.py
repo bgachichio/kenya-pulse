@@ -142,8 +142,12 @@ STALE_DAYS = {"daily": 5, "weekly": 12, "monthly": 45,
 PRECEDENCE = {
     "inflation": ["cbk", "manual"],
     "cbr": ["cbk"], "kesonia": ["cbk"], "repo": ["cbk"], "discount": ["cbk"],
-    "tbill": ["cbk", "sbills"], "tbill182": ["sbills", "manual"],
-    "tbill364": ["sbills", "manual"], "bond10": ["sbonds", "manual"],
+    # CBK runs the auction, so CBK is asked first and Serrari is the second
+    # opinion. Two independent sources is the point: when one goes quiet the
+    # other keeps the rate moving, and the disagreement check sees the gap.
+    "tbill": ["cbk", "cbkbills", "sbills"],
+    "tbill182": ["cbkbills", "sbills", "manual"],
+    "tbill364": ["cbkbills", "sbills", "manual"], "bond10": ["sbonds", "manual"],
     "infra": ["sbonds", "manual"],
     "lending": ["cbk", "manual"], "savings": ["cbk", "manual"], "deposit": ["cbk", "manual"],
     "mmf_top": ["serrari", "manual"], "mmf_avg": ["serrari", "manual"],
@@ -520,6 +524,165 @@ def src_serrari_bonds():
     return out
 
 
+CBK_BILLS = "https://www.centralbank.go.ke/bills-bonds/treasury-bills/"
+
+
+def _parse_date(raw):
+    """A date in whatever shape the page felt like. ISO out, or None.
+
+    CBK writes dates several ways across its own pages, and a wrong guess here
+    is worse than no date: it would make a stale auction look fresh."""
+    if not raw:
+        return None
+    raw = re.sub(r"\s+", " ", str(raw)).strip()
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", raw)
+    if m:
+        try:
+            return datetime(*(int(x) for x in m.groups())).date().isoformat()
+        except ValueError:
+            return None
+    # 16/07/2026 or 16-07-2026, day first, which is how Kenya writes them
+    m = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", raw)
+    if m:
+        d, mo, y = (int(x) for x in m.groups())
+        y = y + 2000 if y < 100 else y
+        try:
+            return datetime(y, mo, d).date().isoformat()
+        except ValueError:
+            return None
+    # 16 Jul 2026 / 16 July 2026
+    m = re.search(r"(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})", raw)
+    if m:
+        months = {mn: i for i, mn in enumerate(
+            ["jan", "feb", "mar", "apr", "may", "jun",
+             "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+        mo = months.get(m.group(2)[:3].lower())
+        if mo:
+            try:
+                return datetime(int(m.group(3)), mo, int(m.group(1))).date().isoformat()
+            except ValueError:
+                return None
+    return None
+
+
+def _rate(raw):
+    """A percentage out of a cell, or None. Rejects anything outside the range a
+    Treasury bill can plausibly pay, because a mis-read column is far more
+    likely than a 300% bill."""
+    if raw is None:
+        return None
+    # The whole number, then a range check. Matching only the first digit or
+    # two would read "300" as 30 and wave a nonsense rate straight through -
+    # silently wrong is the one outcome this file exists to prevent.
+    m = re.search(r"(\d+(?:\.\d+)?)", str(raw).replace(",", ""))
+    if not m:
+        return None
+    v = float(m.group(1))
+    return v if 0 < v < 40 else None
+
+
+def src_cbk_bills():
+    """
+    Treasury bill auction results, from CBK itself.
+
+    Serrari carried these until its page stopped moving: on 1 September it was
+    still serving a 16 July auction for an instrument that auctions weekly, and
+    nothing said so. CBK is the body that runs the auction, so it is the right
+    place to ask, and having two independent sources means one going quiet is
+    visible rather than silent.
+
+    The table is read by what its headers say, not by column position, and two
+    layouts are handled because the same numbers get published both ways:
+
+      long   one row per tenor      | Tenor | ... | Weighted Average Rate |
+      wide   one row per auction    | Date | 91 Day | 182 Day | 364 Day |
+
+    Whichever it is, the newest row wins and its date travels with the rate as
+    `_asof`. That date is the entire point: it is what lets --sources say a
+    figure is stale at the publisher rather than merely present.
+    """
+    out = {}
+    KEYS = {"91": "tbill", "182": "tbill182", "364": "tbill364"}
+    try:
+        soup = BeautifulSoup(get(CBK_BILLS).text, "lxml")
+
+        # --- long: a tenor column and a rate column -------------------------
+        # The same column gets called several things across CBK's own pages, so
+        # the plausible spellings are tried in turn rather than one being
+        # assumed. Anything else falls through to the loud failure below.
+        head, rows = None, []
+        for _a, _b in (("tenor", "rate"), ("term", "rate"),
+                       ("tenor", "yield"), ("term", "yield")):
+            head, rows = _find_table(soup, _a, _b)
+            if rows:
+                break
+        if rows:
+            best = {}
+            for r in rows:
+                cells = [c.get_text(" ", strip=True) for c in r.find_all(["td", "th"])]
+                if len(cells) < len(head):
+                    continue
+                d = dict(zip(head, cells))
+                tenor = next((v for k, v in d.items()
+                              if "tenor" in k or "term" in k), "")
+                t = re.search(r"\b(91|182|364)\b", tenor)
+                rate_key = next((k for k in d if "rate" in k or "yield" in k), None)
+                if not (t and rate_key):
+                    continue
+                v = _rate(d[rate_key])
+                if v is None:
+                    continue
+                date_key = next((k for k in d if "date" in k), None)
+                when = _parse_date(d.get(date_key)) if date_key else None
+                key = KEYS[t.group(1)]
+                # newest row per tenor; an undated row only fills a gap
+                if key not in best or (when and (not best[key][1] or when > best[key][1])):
+                    best[key] = (v, when)
+            for key, (v, when) in best.items():
+                out[key] = v
+                if when and when > out.get("_asof", ""):
+                    out["_asof"] = when
+
+        # --- wide: a column per tenor ---------------------------------------
+        if not any(k in out for k in KEYS.values()):
+            head, rows = _find_table(soup, "91")
+            cols = {}
+            for i, h in enumerate(head or []):
+                t = re.search(r"\b(91|182|364)\b", h)
+                if t and ("day" in h or "-d" in h or h.strip().isdigit()):
+                    cols[KEYS[t.group(1)]] = i
+            date_i = next((i for i, h in enumerate(head or []) if "date" in h), None)
+            newest = None
+            for r in rows:
+                cells = [c.get_text(" ", strip=True) for c in r.find_all(["td", "th"])]
+                when = _parse_date(cells[date_i]) if date_i is not None and date_i < len(cells) else None
+                got = {k: _rate(cells[i]) for k, i in cols.items() if i < len(cells)}
+                got = {k: v for k, v in got.items() if v is not None}
+                if not got:
+                    continue
+                if newest is None or (when and (not newest[1] or when > newest[1])):
+                    newest = (got, when)
+            if newest:
+                out.update(newest[0])
+                if newest[1]:
+                    out["_asof"] = newest[1]
+
+        if not any(k in out for k in KEYS.values()):
+            # Say what was actually on the page. A scraper that fails silently
+            # is what cost six weeks of a frozen 182-day rate.
+            seen = [", ".join(t.find_all("tr")[0].get_text(" ", strip=True).split()[:8])
+                    for t in soup.find_all("table")[:4]]
+            raise RuntimeError(
+                "no tenor/rate table found; headers seen: "
+                + (" | ".join(seen) if seen else "no tables at all"))
+
+        log(f"    cbk bills: 91d {out.get('tbill')}% · 182d {out.get('tbill182')}% "
+            f"· 364d {out.get('tbill364')}% · auction {out.get('_asof', '?')}")
+    except Exception as e:
+        log(f"    cbk bills FAILED: {e}")
+    return out
+
+
 def src_serrari_bills():
     """Treasury bill auction results — the 182 and 364-day tenors, which the
     CBK front page does not carry. The 91-day comes from CBK, which is fresher."""
@@ -632,7 +795,7 @@ PLAUSIBLE = {
     "npl": (0, 60), "pmi": (20, 80),
     "lending": (0, 40), "reserves": (0, 60), "cover": (0, 24),
     "cab": (-30, 20), "gdp": (-20, 25), "debt": (0, 100), "debt_gdp": (0, 250),
-    "debtserv": (0, 200), "tbill182": (0, 40), "tbill364": (0, 40),
+    "debtserv": (0, 200), "tbill": (0, 40), "tbill182": (0, 40), "tbill364": (0, 40),
     "bond10": (0, 40), "infra": (0, 40), "mmf_top": (0, 40), "mmf_avg": (0, 40),
 }
 
@@ -1374,15 +1537,23 @@ def freshness(by_source, man_dates):
         if isinstance(by_source.get("sbonds", {}).get(_k), (int, float)):
             fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
                          "why": "fetched live"}
-    # bills carry the auction date, which is the reading's real age
-    _auc = by_source.get("sbills", {}).get("_asof")
-    for _k in ("tbill182", "tbill364"):
-        if isinstance(by_source.get("sbills", {}).get(_k), (int, float)):
+    # Bills carry the auction date, which is the reading's real age. The date
+    # has to come from whichever source actually supplied the rate - dating a
+    # CBK figure by Serrari's stale auction would hide exactly the fault this
+    # was built to expose. The order matches PRECEDENCE.
+    for _k in ("tbill", "tbill182", "tbill364"):
+        if isinstance(by_source.get("cbk", {}).get(_k), (int, float)):
+            continue          # the homepage rate carries its own date
+        for _src in ("cbkbills", "sbills"):
+            if not isinstance(by_source.get(_src, {}).get(_k), (int, float)):
+                continue
+            _auc = by_source.get(_src, {}).get("_asof")
             _age = ((datetime.now(timezone.utc).date()
                      - datetime.fromisoformat(_auc).date()).days if _auc else 0)
             fresh[_k] = {"asOf": _auc or _today, "ageDays": _age,
                          "stale": _age > MANUAL_CADENCE.get(_k, 45),
-                         "why": "last auction"}
+                         "why": f"last auction ({_src})"}
+            break
     # Trading Economics reports the period it belongs to, so use that date
     # rather than today — a July PMI is a July reading whenever it was fetched.
     for _k, _d in by_source.get("_te_dates", {}).items():
@@ -1456,14 +1627,22 @@ def sources_report():
         # date older than its own cycle means the publisher has stopped, which
         # no amount of collecting will fix.
         no_date = bool(f.get("stale")) and age is None and not stale_src
-        old_at_source = bool(f.get("stale")) and age is not None and not stale_src
+        # Independent, not exclusive. Today's 182-day is both: the first-choice
+        # source gave nothing AND the one that answered is weeks behind. Showing
+        # only the first of those hides half the problem.
+        old_at_source = bool(f.get("stale")) and age is not None
         if no_date:
             undated.append(ind)
         if old_at_source:
             stale_at_source.append(f"{ind} ({age}d)")
-        note = ("   <- fell back" if stale_src
-                else "   <- SOURCE IS STALE" if old_at_source
-                else "   <- no date" if no_date else "")
+        flags = []
+        if stale_src:
+            flags.append("fell back")
+        if old_at_source:
+            flags.append("SOURCE IS STALE")
+        if no_date:
+            flags.append("no date")
+        note = ("   <- " + ", ".join(flags)) if flags else ""
         print(f"  {ind:12} {v:>12g}  {got_from or '?':9} {asof:11} {age_s:>5}  "
               f"{'/'.join(want)}{note}")
 
@@ -1499,6 +1678,7 @@ def health_report():
         ("Serrari MMF table", "https://serrarigroup.com/ke/mmf", False),
         ("Trading Economics", "https://tradingeconomics.com/kenya/manufacturing-pmi", False),
         ("Serrari bonds", "https://serrarigroup.com/ke/bonds", False),
+        ("CBK T-bills", CBK_BILLS, False),
         ("Serrari bills", "https://serrarigroup.com/ke/tbills", False),
     ] + ([("Input sheet",
            f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv", True)]
@@ -1571,6 +1751,7 @@ def gather():
     by_source["fred"] = src_fred()
     by_source["serrari"] = src_serrari()
     by_source["sbonds"] = src_serrari_bonds()
+    by_source["cbkbills"] = src_cbk_bills()
     by_source["sbills"] = src_serrari_bills()
     te_vals, te_dates = src_te()
     by_source["te"] = te_vals
