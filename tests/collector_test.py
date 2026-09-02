@@ -239,6 +239,48 @@ ok("a daily series still gets its own full line",
 ok("the repeated fast readings added no points to it",
    len(i["hist"]) == 5, str(i["hist"]))
 
+print("\n── EVERY BILL IS DATED BY THE SOURCE THAT SUPPLIED IT")
+# The date has to follow the same precedence the reconciler does. Hard-coding
+# it the other way round left the 91-day with no date at all once CBK's auction
+# panel overtook the homepage - no date means no age means no staleness check,
+# which is the blind spot that let the 182-day sit frozen for six weeks.
+def _fresh(cbkbills, sbills, cbk_tbill=None):
+    by = {"cbkbills": dict(cbkbills), "sbills": dict(sbills),
+          "cbk": ({"tbill": cbk_tbill} if cbk_tbill is not None else {})}
+    return kp.freshness(by, {})
+
+PANEL = {"tbill": 8.7692, "tbill182": 8.94, "tbill364": 9.0323, "_asof": "2026-08-27"}
+OLDSER = {"tbill": 8.8, "tbill182": 8.97, "tbill364": 9.04, "_asof": "2026-07-16"}
+
+f = _fresh(PANEL, OLDSER, cbk_tbill=8.769)
+ok("the 91-day is dated even though the homepage also has it",
+   f.get("tbill", {}).get("asOf") == "2026-08-27", str(f.get("tbill")))
+ok("and by the auction panel, not by Serrari's older one",
+   f.get("tbill182", {}).get("asOf") == "2026-08-27", str(f.get("tbill182")))
+ok("so all three are monitored for staleness",
+   all(f.get(k, {}).get("ageDays") is not None
+       for k in ("tbill", "tbill182", "tbill364")), str(sorted(f)))
+ok("and none of them is stale at six days",
+   not any(f[k]["stale"] for k in ("tbill", "tbill182", "tbill364")), str(f))
+
+# CBK's panel goes down: Serrari takes over, and its own age shows
+f = _fresh({}, OLDSER, cbk_tbill=8.769)
+ok("when the panel fails, the fallback brings its own date",
+   f.get("tbill182", {}).get("asOf") == "2026-07-16", str(f.get("tbill182")))
+ok("and that date is old enough to be flagged", f["tbill182"]["stale"] is True)
+ok("the homepage 91-day is left undated rather than given a borrowed one",
+   "tbill" not in f or f["tbill"].get("asOf") != "2026-07-16", str(f.get("tbill")))
+
+# everything down. The typed lane still lists these keys - they have a manual
+# fallback - but with no date, which is the honest answer rather than today's.
+f = _fresh({}, {}, cbk_tbill=8.769)
+ok("with no auction source at all, no bill claims a date",
+   all(f.get(k, {}).get("asOf") is None for k in ("tbill182", "tbill364")),
+   str({k: f.get(k) for k in ("tbill182", "tbill364")}))
+ok("and an undated figure is treated as stale, not as fresh",
+   all(f.get(k, {}).get("stale") for k in ("tbill182", "tbill364")),
+   str({k: f.get(k) for k in ("tbill182", "tbill364")}))
+
 print("\n── OLD IS NOT THE SAME AS OVERDUE")
 # A quarterly figure is not published the day the quarter ends. KNBS releases
 # GDP about three months later, so a 155-day-old GDP reading is a normal one.

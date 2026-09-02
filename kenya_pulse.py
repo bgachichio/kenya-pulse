@@ -1560,19 +1560,26 @@ def freshness(by_source, man_dates):
             fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
                          "why": "fetched live"}
     # Bills carry the auction date, which is the reading's real age. The date
-    # has to come from whichever source actually supplied the rate - dating a
-    # CBK figure by Serrari's stale auction would hide exactly the fault this
-    # was built to expose. The order matches PRECEDENCE.
+    # must come from whichever source will actually supply the rate, so this
+    # walks the same precedence the reconciler will: the first source holding
+    # a value decides the date. Dating a CBK figure by Serrari's stale auction
+    # would hide precisely the fault this exists to expose - and hard-coding
+    # the order the other way round left the 91-day with no date at all once
+    # the auction panel overtook the homepage, which is the same blind spot
+    # that let the 182-day sit frozen for six weeks.
     for _k in ("tbill", "tbill182", "tbill364"):
-        if isinstance(by_source.get("cbk", {}).get(_k), (int, float)):
-            continue          # the homepage rate carries its own date
-        for _src in ("cbkbills", "sbills"):
+        for _src in PRECEDENCE.get(_k, []):
             if not isinstance(by_source.get(_src, {}).get(_k), (int, float)):
                 continue
             _auc = by_source.get(_src, {}).get("_asof")
-            _age = ((datetime.now(timezone.utc).date()
-                     - datetime.fromisoformat(_auc).date()).days if _auc else 0)
-            fresh[_k] = {"asOf": _auc or _today, "ageDays": _age,
+            if not _auc:
+                # This source has the rate but publishes no date for it - the
+                # homepage prints a bare number. Say nothing rather than
+                # inventing a date; --sources shows the blank.
+                break
+            _age = (datetime.now(timezone.utc).date()
+                    - datetime.fromisoformat(_auc).date()).days
+            fresh[_k] = {"asOf": _auc, "ageDays": _age,
                          "stale": _age > MANUAL_CADENCE.get(_k, 45),
                          "why": f"last auction ({_src})"}
             break
