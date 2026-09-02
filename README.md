@@ -161,10 +161,11 @@ Full step-by-step deployment, with expected output at every step, is in
 **Collector** (on the VM):
 
 ```bash
-pip3 install --user -r requirements.txt
-python3 kenya_pulse.py --health   # every source reachable
-python3 kenya_pulse.py --dry      # read the ladder before writing
-python3 kenya_pulse.py            # write data.json live
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python kenya_pulse.py --health    # every source reachable
+.venv/bin/python kenya_pulse.py --sources   # what each source actually parsed
+.venv/bin/python kenya_pulse.py --dry       # read the ladder before writing
+.venv/bin/python kenya_pulse.py             # write data.json live
 ```
 
 **App** (build on a real machine — never on a 1 GB VM, it OOMs on install):
@@ -177,7 +178,7 @@ npx vercel --prod
 
 ## Tests
 
-Eighteen suites, 534 assertions. Most run against the component mounted under
+Eighteen suites, 549 assertions. Most run against the component mounted under
 Node with no browser at all; the push work is checked three ways, because a
 notification that fails silently is worse than none, and the design tokens are
 read back out of a real browser rather than trusted.

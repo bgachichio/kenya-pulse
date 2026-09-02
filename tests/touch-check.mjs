@@ -130,6 +130,119 @@ const barBox = await page.evaluate(()=>{
 ok('the chart bars are a full-height target', barBox.h>=100, JSON.stringify(barBox));
 ok('the bars tile the plot with no dead gaps', barBox.w>=10, JSON.stringify(barBox));
 
+console.log('\n── EVERY CONTROL, NOT A SAMPLE');
+/* "All interactions are responsive" is a claim about every control, so every
+   control is measured. The classic cause of an unresponsive button is not the
+   handler at all - it is something else sitting on top of it, so the tap never
+   arrives. elementFromPoint at the control's own centre catches exactly that. */
+async function sweep(pg, where) {
+  return await pg.evaluate((label) => {
+    const bad = [];
+    const els = [...document.querySelectorAll(
+      'button,a,input,select,[role="switch"],[role="tab"]')];
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      // A centre outside the viewport cannot be hit-tested. That is the test's
+      // limit, not the app's: a horizontally scrolling strip parks chips off to
+      // the right, and a finger scrolls them into view before tapping.
+      if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) continue;
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) {
+        const nm = (el.innerText || el.getAttribute('aria-label') || el.tagName).slice(0, 24);
+        bad.push(`${label}: nothing at (${Math.round(x)},${Math.round(y)}) for "${nm}" `
+               + `rect ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} `
+               + `vp ${window.innerWidth}x${window.innerHeight}`);
+        continue;
+      }
+      if (hit !== el && !el.contains(hit) && !hit.contains(el)) {
+        const name = (el.innerText || el.getAttribute('aria-label') || el.tagName).slice(0, 24);
+        bad.push(`${label}: "${name}" is covered by ${hit.tagName}.${hit.className}`);
+      }
+      if (el.disabled) continue;
+      const cs = getComputedStyle(el);
+      if (cs.pointerEvents === 'none') {
+        bad.push(`${label}: ${(el.innerText||el.tagName).slice(0,24)} has pointer-events:none`);
+      }
+    }
+    return { checked: els.length, bad };
+  }, where);
+}
+
+let sweptTotal = 0;
+for (const name of ['Pulse', 'Edge', 'Trends', 'Outlook', 'Data']) {
+  await tab(page, name).tap();
+  await page.waitForTimeout(500);
+  // walk the whole tab, not just the first screen
+  let y = 0, worst = [];
+  for (let i = 0; i < 12; i++) {
+    const res = await sweep(page, name);
+    sweptTotal += res.checked; worst = worst.concat(res.bad);
+    const more = await page.evaluate(() => {
+      const before = window.scrollY;
+      window.scrollBy(0, window.innerHeight * 0.85);
+      return window.scrollY !== before;
+    });
+    await page.waitForTimeout(180);
+    if (!more) break;
+  }
+  ok(`${name}: every control on the tab can actually be tapped`,
+     worst.length === 0, worst.slice(0, 4).join(' | '));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(200);
+}
+ok('the sweep covered a real number of controls', sweptTotal > 200, String(sweptTotal));
+
+/* and inside the sheet, where an overlay problem is most likely */
+await page.locator('button[aria-label*="ettings" i]').first().tap();
+await page.waitForTimeout(600);
+await page.locator('[role="dialog"] button[aria-expanded]').first().tap();
+await page.waitForTimeout(400);
+let sheetBad = [];
+for (let i = 0; i < 14; i++) {
+  const res = await page.evaluate(() => {
+    const sheet = document.querySelector('[role="dialog"]');
+    const bad = [];
+    for (const el of sheet.querySelectorAll('button,a,input,[role="switch"]')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      if (r.bottom < 0 || r.top > window.innerHeight) continue;
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
+        bad.push(`"${(el.innerText||el.getAttribute('aria-label')||el.tagName).slice(0,22)}" covered by ${hit.tagName}`);
+      }
+    }
+    const before = sheet.scrollTop;
+    sheet.scrollBy(0, sheet.clientHeight * 0.85);
+    return { bad, more: sheet.scrollTop !== before };
+  });
+  sheetBad = sheetBad.concat(res.bad);
+  await page.waitForTimeout(160);
+  if (!res.more) break;
+}
+ok('every control in the settings sheet can be tapped',
+   sheetBad.length === 0, sheetBad.slice(0, 4).join(' | '));
+
+/* Now actually press things, and insist nothing throws. */
+await page.keyboard.press('Escape');
+await page.waitForTimeout(400);
+const before = errs.length;
+for (const name of ['Pulse', 'Edge', 'Trends', 'Outlook', 'Data']) {
+  await tab(page, name).tap();
+  await page.waitForTimeout(350);
+  const rows = page.locator('button[aria-expanded]');
+  const n = Math.min(await rows.count(), 6);
+  for (let i = 0; i < n; i++) {
+    await rows.nth(i).tap().catch(() => {});
+    await page.waitForTimeout(90);
+    await rows.nth(i).tap().catch(() => {});
+    await page.waitForTimeout(60);
+  }
+}
+ok('opening and closing rows across every tab raises nothing',
+   errs.length === before, errs.slice(before).join(' | '));
+
 console.log('\n── A MOUSE ON A DESKTOP');
 const dctx = await b.newContext({ viewport:{width:1280,height:900}, hasTouch:false });
 const dpage = await dctx.newPage();

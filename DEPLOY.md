@@ -31,10 +31,22 @@ cd kenya-pulse && ls
 ```bash
 V="bgkaranja@34.35.177.164"; K="-i $HOME/.ssh/gcp_pulse"
 scp $K kenya_pulse.py requirements.txt manual.example.json $V:~/kenya-pulse/
-ssh $K $V "cd ~/kenya-pulse && pip3 install --user -r requirements.txt && wc -l kenya_pulse.py"
+ssh $K $V "cd ~/kenya-pulse && python3 -m venv .venv && \
+           .venv/bin/pip install -q -r requirements.txt && \
+           .venv/bin/python -c 'import requests,bs4,lxml; print(\"deps ok\")' && \
+           wc -l kenya_pulse.py"
 ```
 
-**You should see** the three pinned versions install, then `1594`.
+**You should see** `deps ok`, then the line count.
+
+**A virtualenv, not `pip3 install --user`.** Debian 12 marks its system Python
+externally managed, so `pip3 install --user` fails with
+`error: externally-managed-environment` and installs nothing. The push service
+already runs from `.venv-push` for the same reason; the collector gets `.venv`.
+
+Everything below calls `~/kenya-pulse/.venv/bin/python`, never a bare
+`python3`, so cron and your shell run the same interpreter with the same
+packages.
 
 Unpinned installs were a G3 auto-fail. `requirements.txt` fixes that.
 
@@ -53,7 +65,7 @@ annual source, relabelled where the measure differs.
 Two checks, and the second is the one that matters.
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && python3 kenya_pulse.py --health"
+ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --health"
 ```
 
 **You should see** `10 of 10 reachable`. Eight is enough to proceed.
@@ -64,7 +76,7 @@ figure is carried forward, and the app shows a stale rate wearing a fresh date.
 That is the failure nobody notices. So also run:
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && python3 kenya_pulse.py --sources"
+ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --sources"
 ```
 
 **You should see** a row per source with the keys it actually parsed, then a row
@@ -82,7 +94,7 @@ This is the command to run first when a rate looks frozen.
 ## A4 · Dry run — read the ladder before writing anything
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && python3 kenya_pulse.py --dry" | tail -40
+ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --dry" | tail -40
 ```
 
 **You should see** ten rungs, infrastructure bonds at the top near **11.77%**, a
@@ -93,7 +105,7 @@ If those rates look wrong, a source has changed shape. Stop.
 ## A5 · Write it live
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && python3 kenya_pulse.py"
+ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py"
 curl -s https://gachichio.org/pulse/data.json | head -c 60; echo
 ```
 
@@ -108,9 +120,9 @@ figures move at different speeds and the cheap pass covers the fast ones.
 ```bash
 ssh $K $V "crontab -l 2>/dev/null | grep -v kenya_pulse.py | {
   cat
-  echo '17 4 * * *   cd ~/kenya-pulse && python3 kenya_pulse.py --fast >> ~/collect.log 2>&1'
-  echo '35 4 * * 1   cd ~/kenya-pulse && python3 kenya_pulse.py      >> ~/collect.log 2>&1'
-  echo '5  3 1 * *   cd ~/kenya-pulse && python3 kenya_pulse.py --compact >> ~/collect.log 2>&1'
+  echo '17 4 * * *   cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --fast >> ~/collect.log 2>&1'
+  echo '35 4 * * 1   cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py      >> ~/collect.log 2>&1'
+  echo '5  3 1 * *   cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --compact >> ~/collect.log 2>&1'
 } | crontab -"
 ```
 

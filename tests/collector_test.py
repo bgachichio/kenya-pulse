@@ -112,6 +112,63 @@ ok("it reports what parsed, not just what answered",
    "returned nothing" in src and "fell back" in src)
 ok("--health still exists for reachability", "def health_report" in src)
 
+print("\n── THE SOURCE REPORT ACTUALLY RUNS")
+# Not "the string is in the file" - the function is executed with every fetcher
+# stubbed, including one that fails, and its output is read back. This is the
+# command someone runs when a rate looks frozen; it has to work.
+import io
+import contextlib
+
+kp.src_cbk = lambda: {"cbr": 8.75, "inflation": 6.49, "kes_usd": 129.34,
+                      "tbill": 8.77, "lending": 14.38, "deposit": 6.84,
+                      "savings": 3.32, "kesonia": 8.75, "repo": 9.25,
+                      "discount": 9.25, "kes_eur": 149.6, "kes_gbp": 175.11}
+kp.src_nse = lambda: {"nasi": 145.2, "nse20": 2400.0, "nse25": 4100.0,
+                      "bank_idx": 190.0, "mktcap": 2600.0}
+kp.src_fred = lambda: {"fed_funds": 4.33, "us10y": 4.63}
+kp.src_serrari = lambda: {"mmf_top": 12.1, "mmf_avg": 10.4}
+kp.src_serrari_bonds = lambda: {"bond10": 13.5, "infra": 12.8}
+kp.src_serrari_bills = lambda: {}          # the 182-day scraper, broken
+kp.src_te = lambda: ({"pmi": 50.1}, {})
+kp.src_fx = lambda: {}
+kp.src_imf = lambda: ({}, {})
+kp.src_worldbank = lambda: ({}, {})
+kp.src_manual = lambda: ({"npl": 16.4, "reserves": 10.2, "cover": 4.9,
+                          "cab": -3.0, "gdp": 5.3, "debt": 11.6,
+                          "debt_gdp": 69.9, "debtserv": 61.0,
+                          "tbill182": 9.0, "tbill364": 9.5}, {})
+kp.src_sheet = lambda: ({}, {}, [])
+kp.FAST = True
+
+buf = io.StringIO()
+try:
+    with contextlib.redirect_stdout(buf):
+        kp.sources_report()
+    out = buf.getvalue()
+    ran = True
+except Exception as exc:                                    # noqa: BLE001
+    out, ran = f"{type(exc).__name__}: {exc}", False
+ok("it runs end to end without raising", ran, out[:200])
+ok("a scraper that returned nothing is named as such",
+   "sbills" in out and "returned nothing" in out, "")
+ok("and the indicator it feeds is flagged as having fallen back",
+   re.search(r"tbill182.*fell back", out) is not None, "")
+
+# The false positive this test exists for: manual is the FIRST choice for
+# several indicators, so a manual figure there is the system working.
+for ind in ("cab", "debt_gdp", "npl", "reserves", "cover"):
+    assert kp.PRECEDENCE.get(ind, ["manual"])[0] == "manual", ind
+ok("an indicator whose first choice is a typed figure is not flagged",
+   not re.search(r"cab .*fell back", out) and not re.search(r"debt_gdp .*fell back", out),
+   [l for l in out.splitlines() if l.strip().startswith(("cab ", "debt_gdp "))])
+
+m = re.search(r"(\d+) of (\d+) indicators have a figure", out)
+ok("the tally is stated", m is not None, "")
+ok("and cannot exceed the register it counts against",
+   m and int(m.group(1)) <= int(m.group(2)), m.group(0) if m else "")
+ok("keys collected but not registered are listed separately, not counted",
+   "collected but not registered" in out and "mmf_top" in out, "")
+
 print("\n── THE WATCHDOG STILL GUARDS SILENCE")
 state = {}
 ok("a first run records the shape", kp.watchdog({"a": 1}, state) is None)

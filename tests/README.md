@@ -1,6 +1,6 @@
 # Tests
 
-Eighteen suites, 534 assertions. All of them exit on their own; a
+Eighteen suites, 549 assertions. All of them exit on their own; a
 non-zero exit code means a failure.
 
 ```bash

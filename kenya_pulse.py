@@ -14,8 +14,10 @@ the three signal layers, and writes one JSON the app renders.
     python3 kenya_pulse.py --remind   nudge about figures that need typing
     python3 kenya_pulse.py --compact  roll the log up
 
-Dependencies, pinned:
-    pip3 install --user requests==2.32.5 beautifulsoup4==4.13.4 lxml==5.3.0
+Dependencies, pinned. A virtualenv, because Debian marks its system Python
+externally managed and `pip3 install --user` fails there outright:
+    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+On the VM every call runs as ~/kenya-pulse/.venv/bin/python, cron included.
 
 The three layers, computed here rather than in the browser so the app stays a
 renderer and this file stays the single place logic can be wrong:
@@ -1388,16 +1390,21 @@ def sources_report():
             missing.append(ind)
             print(f"  {ind:12} {'-':>12}  {'-':10} {'/'.join(want)}   <- MISSING")
             continue
-        # A figure that arrived from the fallback rather than the live source
-        # is the quiet failure: it is present, it is just not fresh.
-        live_wanted = [w for w in want if w != "manual"]
-        stale_src = bool(live_wanted) and got_from not in live_wanted
+        # A figure that arrived from a lower-ranked source than it should have
+        # is the quiet failure: it is present, it is just not from the place
+        # that keeps it fresh. "Lower-ranked", not "typed" - manual is the
+        # first choice for several of these and is not a fallback there.
+        stale_src = bool(want) and want[0] != "any" and got_from != want[0]
         if stale_src:
             offlist.append(ind)
         print(f"  {ind:12} {v:>12g}  {got_from or '?':10} {'/'.join(want)}"
               f"{'   <- fell back' if stale_src else ''}")
 
-    print(f"\n  {len(values)} of {len(REGISTER)} indicators have a figure.")
+    filled = [k for k in REGISTER if k in values]
+    print(f"\n  {len(filled)} of {len(REGISTER)} indicators have a figure.")
+    extra = sorted(set(values) - set(REGISTER))
+    if extra:
+        print(f"  collected but not registered: {', '.join(extra)}")
     if missing:
         print(f"  missing entirely: {', '.join(missing)}")
     if offlist:
