@@ -12,7 +12,51 @@ the Lenovo. About twenty minutes. Each step ends with **You should see**.
 
 ---
 
-## 0 · Unpack
+## 0 · Every session starts here
+
+`$V` and `$K` are shell variables, not settings. They live only in the terminal
+you typed them into, so a new tab, a reboot, or coming back tomorrow loses
+them — and **34 of the commands below use them**.
+
+Run this once per terminal, before anything else:
+
+```bash
+. ~/.kenya-pulse-env 2>/dev/null || {
+  cat > ~/.kenya-pulse-env <<'ENV'
+V="bgkaranja@34.35.177.164"
+K="-i $HOME/.ssh/gcp_pulse"
+ENV
+  . ~/.kenya-pulse-env
+}
+echo "V=$V"; echo "K=$K"; ssh $K $V "echo reachable"
+```
+
+**You should see** the two values, then `reachable`. It writes the file the
+first time and reads it every time after.
+
+### If you see `hostname contains invalid characters`
+
+That is this, and only this. With `$K` and `$V` empty, `ssh $K $V "long
+command"` puts the command itself where the hostname belongs, and ssh rejects
+it. Nothing ran, nothing was changed, nothing is broken — run the block above
+and repeat what you were doing.
+
+```
+$ ssh $K $V "crontab -l | ..."
+hostname contains invalid characters        <- $V was empty
+```
+
+Two other messages worth telling apart:
+
+| Message | Cause |
+|---|---|
+| `hostname contains invalid characters` | `$V` empty — run the block above |
+| `Permission denied (publickey)` | `$K` empty or the wrong key path |
+| `Could not resolve hostname` | `$V` set but wrong |
+
+---
+
+## 0.1 · Unpack
 
 ```bash
 cd ~/Downloads/files
@@ -28,8 +72,10 @@ cd kenya-pulse && ls
 
 ## A1 · Copy it up, with pinned dependencies
 
+Section 0 must have been run in this terminal, or every `ssh` below fails with
+`hostname contains invalid characters`.
+
 ```bash
-V="bgkaranja@34.35.177.164"; K="-i $HOME/.ssh/gcp_pulse"
 scp $K kenya_pulse.py requirements.txt manual.example.json $V:~/kenya-pulse/
 ssh $K $V "cd ~/kenya-pulse && python3 -m venv .venv && \
            .venv/bin/pip install -q -r requirements.txt && \
@@ -346,7 +392,6 @@ missing clone makes every `scp` below fail silently enough to be confusing.
 SRC=~/kenya-pulse-src
 [ -d $SRC ] && git -C $SRC pull -q || git clone --depth 1 https://github.com/bgachichio/kenya-pulse $SRC
 
-V="bgkaranja@34.35.177.164"; K="-i $HOME/.ssh/gcp_pulse"
 scp $K $SRC/push_server.py $SRC/requirements-push.txt $V:~/kenya-pulse/
 ssh $K $V "ls -l ~/kenya-pulse/push_server.py"
 ```

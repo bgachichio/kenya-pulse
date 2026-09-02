@@ -197,6 +197,75 @@ ok("and cannot exceed the register it counts against",
 ok("keys collected but not registered are listed separately, not counted",
    "collected but not registered" in out and "mmf_top" in out, "")
 
+print("\n── THE SESSION VARIABLES EVERY OTHER COMMAND DEPENDS ON")
+# $V and $K are shell variables. They live only in the terminal they were typed
+# into, and 37 commands in the guide use them. A new tab loses them and every
+# one of those commands fails with "hostname contains invalid characters",
+# which names neither the cause nor the fix. Section 0 has to establish them,
+# and it has to be the only place that does.
+import os
+import subprocess
+import tempfile
+import textwrap
+
+deploy_text = (ROOT / "DEPLOY.md").read_text()
+uses = deploy_text.count("ssh $K $V")
+first_use = deploy_text.index("ssh $K $V")
+defs = [i for i in range(len(deploy_text))
+        if deploy_text.startswith('V="bgkaranja', i)]
+ok("the guide really does lean on these variables", uses > 20, str(uses))
+ok("they are defined exactly once, so there is one place to look",
+   len(defs) == 1, f"{len(defs)} definitions")
+ok("and defined before the first command that needs them",
+   defs and defs[0] < first_use, f"defined at {defs[0] if defs else -1}, used at {first_use}")
+ok("section 0 is where that happens",
+   deploy_text.index("## 0 · Every session starts here") < defs[0])
+ok("the error it produces is named, so it is self-diagnosing",
+   "hostname contains invalid characters" in deploy_text)
+ok("and told apart from the two it is confused with",
+   "Permission denied (publickey)" in deploy_text
+   and "Could not resolve hostname" in deploy_text)
+
+# run section 0 for real, against a stand-in ssh
+s0 = deploy_text[deploy_text.index("## 0 · Every session starts here"):]
+s0_block = s0.split("```bash", 1)[1].split("```", 1)[0].strip()
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    (tmp / "bin").mkdir()
+    (tmp / "bin" / "ssh").write_text(textwrap.dedent("""\
+        #!/bin/bash
+        # argv mirrors real ssh: options, hostname, then the command
+        while [ "$1" = "-i" ]; do shift 2; done
+        host="$1"; shift
+        case "$host" in
+          ""|*" "*) echo "hostname contains invalid characters" >&2; exit 255;;
+        esac
+        echo "$@" | sed 's/^echo //' | tr -d '"'
+        """))
+    (tmp / "bin" / "ssh").chmod(0o755)
+    env = {**os.environ, "HOME": str(tmp), "PATH": f"{tmp / 'bin'}:{os.environ['PATH']}"}
+    env.pop("V", None); env.pop("K", None)
+
+    first = subprocess.run(["bash", "-c", s0_block], env=env, capture_output=True, text=True)
+    ok("section 0 runs on a machine that has never seen it",
+       first.returncode == 0 and "reachable" in first.stdout, first.stderr[:120])
+    ok("and it wrote the file so the next terminal is cheaper",
+       (tmp / ".kenya-pulse-env").exists())
+
+    second = subprocess.run(["bash", "-c", s0_block], env=env, capture_output=True, text=True)
+    ok("running it again reads the file rather than rewriting it",
+       second.returncode == 0 and "reachable" in second.stdout, second.stderr[:120])
+    ok("and yields the same host both times",
+       [l for l in first.stdout.splitlines() if l.startswith("V=")]
+       == [l for l in second.stdout.splitlines() if l.startswith("V=")],
+       first.stdout + "|" + second.stdout)
+
+    # and the failure it exists to prevent
+    naked = subprocess.run(["bash", "-c", 'ssh $K $V "crontab -l | grep x"'],
+                           env=env, capture_output=True, text=True)
+    ok("without it, the reported error is exactly what appears",
+       "hostname contains invalid characters" in naked.stderr, naked.stderr[:120])
+
 print("\n── THE CRON BLOCK IN DEPLOY.MD ACTUALLY WORKS")
 # The command in the deploy guide is extracted from the document and run for
 # real against a stand-in crontab. A documented command nobody executes is a
