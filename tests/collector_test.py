@@ -203,6 +203,44 @@ else:
     ok("a stale auction is reported with its real date, not suppressed",
        stale.get("tbill182") == 8.97 and stale.get("_asof") == "2026-07-16", str(stale))
 
+    # --- the wrong table, which is what actually happened -------------------
+    # The first live run matched something on CBK's page dated 2016 and
+    # reported a ten-year-old 91-day rate of 9.06% as current, against 8.77%
+    # from the homepage. A plausible wrong number is the worst outcome
+    # available: it outranks the right one and nothing looks broken.
+    archive = """
+    <table><caption>Treasury Bills Average Rates</caption>
+      <tr><th>Issue Date</th><th>91 Day</th><th>182 Day</th><th>364 Day</th></tr>
+      <tr><td>07/03/2016</td><td>9.06</td><td>10.2</td><td>11.4</td></tr>
+      <tr><td>14/03/2016</td><td>9.10</td><td>10.3</td><td>11.5</td></tr>
+      <tr><td>21/03/2016</td><td>9.20</td><td>10.4</td><td>11.6</td></tr></table>"""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        got = parse(archive)
+    said = buf.getvalue()
+    ok("a decade-old auction is refused, not published as today's rate",
+       got == {}, str(got))
+    ok("and the refusal says what it matched and why",
+       "wrong table" in said and "2016" in said, said.strip())
+    ok("it names the values it threw away, so the fix is obvious",
+       "9.2" in said or "9.06" in said, said.strip())
+
+    # the same table with current dates is fine - it is the age that is wrong,
+    # not the shape
+    ok("the same shape with current dates parses",
+       parse(archive.replace("2016", "2026")).get("tbill182") == 10.4)
+
+    # a date in the future is equally impossible
+    ahead = archive.replace("2016", "2099")
+    ok("an auction dated in the future is refused too", parse(ahead) == {})
+
+    # --- a failure must return nothing, not the part that parsed ------------
+    # These functions build their result as they go. Returning it after an
+    # exception hands back half a table: numbers read from the wrong columns,
+    # which is how a wrong rate reaches the ladder wearing a FAILED log line.
+    ok("a scraper that fails returns nothing at all",
+       parse(archive) == {} and parse("<html></html>") == {})
+
     # put the fetcher back: leaving it stubbed makes every later scenario read
     # whichever page this block happened to feed it last
     kp.get = _real_get
@@ -234,6 +272,35 @@ ok("a daily series still gets its own full line",
    i["hist"] == [7.0, 6.8, 6.5, 6.2, 6.0], str(i["hist"]))
 ok("the repeated fast readings added no points to it",
    len(i["hist"]) == 5, str(i["hist"]))
+
+print("\n── OLD IS NOT THE SAME AS OVERDUE")
+# A quarterly figure is not published the day the quarter ends. KNBS releases
+# GDP about three months later, so a 155-day-old GDP reading is a normal one.
+# Thresholds set to the cycle alone flagged all three fiscal series every run,
+# which teaches the reader to ignore the flag - and the flag is the only thing
+# that would have shown the 182-day bill going quiet.
+C = kp.MANUAL_CADENCE
+ok("quarterly GDP tolerates a real publication lag",
+   C["gdp"] >= 190, str(C["gdp"]))
+ok("so does the current account", C["cab"] >= 190, str(C["cab"]))
+ok("and debt to GDP", C["debt_gdp"] >= 190, str(C["debt_gdp"]))
+ok("the monthly debt stock allows for the Treasury's lag",
+   110 <= C["debt"] <= 150, str(C["debt"]))
+ok("an annual figure gets a year and a bit", C["debtserv"] >= 365, str(C["debtserv"]))
+ok("but a weekly auction still gets days, not months",
+   C["tbill182"] <= 14, str(C["tbill182"]))
+ok("and weekly reserves stay tight", C["reserves"] <= 21, str(C["reserves"]))
+ok("every threshold is longer than the cycle it guards",
+   all(C[k] > kp.STALE_DAYS[kp.REGISTER[k][4]] * 0.9
+       for k in ("gdp", "cab", "debt", "npl") if k in C and k in kp.REGISTER),
+   str({k: (C.get(k), kp.REGISTER[k][4]) for k in ("gdp", "cab", "debt", "npl")}))
+
+# the live ages from the 2 September run must no longer raise an alarm
+for name, age, should_flag in (("gdp", 155, False), ("debt", 94, False),
+                               ("debt_gdp", 155, False), ("cab", 64, False),
+                               ("npl", 33, False), ("tbill182", 48, True)):
+    ok(f"{name} at {age} days is {'flagged' if should_flag else 'not flagged'}",
+       (age > C[name]) == should_flag, f"threshold {C[name]}")
 
 print("\n── THE 182-DAY BILL")
 ok("it is registered as a weekly instrument",
@@ -326,6 +393,15 @@ ok("and cannot exceed the register it counts against",
 ok("keys collected but not registered are listed separately, not counted",
    "collected but not registered" in out and "mmf_top" in out, "")
 
+# "is the connection working" is a different question from "is the figure
+# fresh", and it gets its own line rather than being inferred from the table.
+ok("the report states how many live sources answered",
+   re.search(r"connection: \d+ of \d+ live sources answered", out) is not None,
+   [l for l in out.splitlines() if "connection" in l])
+ok("and names the ones that did not",
+   "SILENT: " in out and "cbkbills" in out.split("SILENT: ")[1][:60],
+   [l for l in out.splitlines() if "connection" in l])
+
 print("\n── A SOURCE THAT ANSWERS, PARSES, AND IS STILL STALE")
 # The failure that hid for weeks and that neither --health nor a parse check
 # sees: serrarigroup answered, the table parsed, 8.97% came back - and the
@@ -356,7 +432,9 @@ ok("both faults are shown, not just the first - CBK gave nothing AND "
    re.search(r"tbill182.*fell back, SOURCE IS STALE", out2) is not None,
    [l for l in out2.splitlines() if "tbill182" in l])
 ok("the summary says plainly that collecting more often will not help",
-   "collecting more often will not move these" in out2, "")
+   "collecting more often will not move them" in out2, "")
+ok("and that a normal publication lag is not what it means",
+   "publication lag" in out2, "")
 ok("a value is still reported - it is stale, not missing",
    re.search(r"tbill182\s+8\.97", out2) is not None, "")
 # and when CBK itself answers with a stale auction, that is stale only - it

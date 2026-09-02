@@ -10,6 +10,7 @@ the three signal layers, and writes one JSON the app renders.
     python3 kenya_pulse.py --dry      print, write nothing, send nothing
     python3 kenya_pulse.py --health   source reachability, no writes
     python3 kenya_pulse.py --sources  what each source actually parsed, no writes
+    python3 kenya_pulse.py --tables URL   print every table on a page, no writes
     python3 kenya_pulse.py --remind   Telegram nudge listing what needs typing
     python3 kenya_pulse.py --remind   nudge about figures that need typing
     python3 kenya_pulse.py --compact  roll the log up
@@ -51,6 +52,7 @@ REMIND  = "--remind"  in sys.argv
 DRY     = "--dry"     in sys.argv
 HEALTH  = "--health"  in sys.argv
 SOURCES = "--sources" in sys.argv
+TABLES  = "--tables"  in sys.argv
 COMPACT = "--compact" in sys.argv
 
 TG_TOKEN = os.environ.get("KP_TG_TOKEN", "")
@@ -520,7 +522,11 @@ def src_serrari_bonds():
         log(f"    serrari bonds: {len(bonds)} issues · 10yr gov {out.get('bond10')}% "
             f"· infra {out.get('infra')}%")
     except Exception as e:
+        # Nothing, not the half of it that parsed before the failure. A partly
+        # read table hands back numbers from the wrong columns, and a plausible
+        # wrong number beats a missing one straight into the ladder.
         log(f"    serrari bonds FAILED: {e}")
+        return {}
     return out
 
 
@@ -676,10 +682,39 @@ def src_cbk_bills():
                 "no tenor/rate table found; headers seen: "
                 + (" | ".join(seen) if seen else "no tables at all"))
 
+        # Found *a* table is not the same as found the *right* one. The first
+        # run of this scraper matched something on the page dated 2016 and
+        # reported a ten-year-old 91-day rate as current, which is worse than
+        # returning nothing: a wrong number that looks plausible propagates.
+        # A Treasury bill auction is weekly, so a date a year out is proof the
+        # match is wrong, and the parse is thrown away rather than trusted.
+        when = out.get("_asof")
+        if when:
+            age = (datetime.now(timezone.utc).date()
+                   - datetime.fromisoformat(when).date()).days
+            if age > 400 or age < -2:
+                raise RuntimeError(
+                    f"matched a table dated {when} ({age} days), which cannot be a "
+                    f"current auction - wrong table. Values discarded: "
+                    + ", ".join(f"{k}={v}" for k, v in out.items() if k != "_asof"))
+        else:
+            raise RuntimeError(
+                "found rates but no auction date, so their age cannot be judged: "
+                + ", ".join(f"{k}={v}" for k, v in out.items()))
+
+        missing = [t for t, k in KEYS.items() if k not in out]
+        if missing:
+            log(f"    cbk bills: only found {', '.join(sorted(set(KEYS) - set(missing)))}"
+                f"-day; {', '.join(missing)}-day not in that table")
+
         log(f"    cbk bills: 91d {out.get('tbill')}% · 182d {out.get('tbill182')}% "
             f"· 364d {out.get('tbill364')}% · auction {out.get('_asof', '?')}")
     except Exception as e:
+        # Nothing, not the half of it that parsed before the failure. A partly
+        # read table hands back numbers from the wrong columns, and a plausible
+        # wrong number beats a missing one straight into the ladder.
         log(f"    cbk bills FAILED: {e}")
+        return {}
     return out
 
 
@@ -712,7 +747,11 @@ def src_serrari_bills():
         log(f"    serrari bills: 182d {out.get('tbill182')}% · 364d {out.get('tbill364')}% "
             f"· auction {out.get('_asof', '?')}")
     except Exception as e:
+        # Nothing, not the half of it that parsed before the failure. A partly
+        # read table hands back numbers from the wrong columns, and a plausible
+        # wrong number beats a missing one straight into the ladder.
         log(f"    serrari bills FAILED: {e}")
+        return {}
     return out
 
 
@@ -771,12 +810,23 @@ def src_fx():
 # checked in March is not a rate, it is a memory.
 MANUAL_CADENCE = {
     # inflation is scraped from CBK and mmf_* from Serrari, so neither appears here
-    "pmi": 45, "npl": 45,
-    "reserves": 21, "cover": 21,
+    # Cycle PLUS publication lag, not cycle alone. Quarterly GDP is not
+    # published the day the quarter ends - KNBS releases it about three months
+    # later - so a 155-day-old GDP reading is a normal one, and flagging it
+    # taught the reader to ignore the flag. The threshold is what "overdue"
+    # actually means for each series: how long after which a figure of this
+    # kind genuinely should have been replaced.
+    "pmi": 45,            # monthly, out in the first week of the next month
+    "npl": 90,            # monthly, CBK bank supervision runs a month or two behind
+    "reserves": 21, "cover": 21,          # weekly, CBK publishes on Thursdays
     # The 182-day auctions weekly. Letting a typed one stand for three weeks
     # meant three missed auctions could pass without the app saying a word.
     "tbill182": 10, "tbill364": 45, "bond10": 45, "infra": 45,
-    "debt": 60, "debt_gdp": 60, "gdp": 130, "cab": 130, "debtserv": 400,
+    "debt": 120,          # monthly, Treasury publishes a couple of months back
+    "debt_gdp": 200,      # quarterly in practice, and lags the debt stock
+    "gdp": 200,           # quarterly, KNBS about three months behind the quarter
+    "cab": 200,           # quarterly balance of payments, same shape
+    "debtserv": 400,      # annual
 }
 
 
@@ -1567,6 +1617,49 @@ def freshness(by_source, man_dates):
     return fresh
 
 
+def tables_report(url):
+    """Print every table on a page: its headers, its first rows, its size.
+
+    Written after a scraper matched the wrong table on CBK's bills page and
+    reported a 2016 rate as current. Guessing at markup from a distance is how
+    that happens, and asking someone to paste HTML is a poor substitute for
+    looking. This is the looking, and it is repeatable.
+    """
+    soup = BeautifulSoup(get(url).text, "lxml")
+    tables = soup.find_all("table")
+    print(f"\n  {url}")
+    print(f"  {len(tables)} table(s)\n")
+    if not tables:
+        text = soup.get_text(" ", strip=True)
+        print("  No tables. The page may build them in the browser, in which")
+        print("  case there is nothing here to scrape. First 400 characters:\n")
+        print("    " + text[:400])
+        return 0
+    for n, t in enumerate(tables):
+        rows = t.find_all("tr")
+        print(f"  ── table {n}: {len(rows)} rows"
+              + (f", caption {t.caption.get_text(' ', strip=True)!r}" if t.caption else ""))
+        for r in rows[:4]:
+            cells = [c.get_text(" ", strip=True) for c in r.find_all(["th", "td"])]
+            if not cells:
+                continue
+            print("     | " + " | ".join(c[:22] for c in cells[:9])
+                  + (" | ..." if len(cells) > 9 else ""))
+        if len(rows) > 4:
+            print(f"     ... {len(rows) - 4} more rows")
+        print()
+    # links worth knowing about: a page that offers a spreadsheet is easier to
+    # read than one that hides its numbers in markup
+    files = [(a.get_text(" ", strip=True)[:44], a["href"])
+             for a in soup.find_all("a", href=True)
+             if re.search(r"\.(csv|xlsx?|xls)(\?|$)", a["href"], re.I)]
+    if files:
+        print("  downloadable data on this page:")
+        for label, href in files[:10]:
+            print(f"    {label or '(no text)'} -> {href}")
+    return 0
+
+
 def sources_report():
     """What every source actually returned, not merely whether it answered.
 
@@ -1597,6 +1690,15 @@ def sources_report():
         print(f"  {name:12} {len(got):>6}  {keys or '(none)'}{flag}")
 
     values, prov, _ = reconcile(by_source)
+    live = [n for n in sorted(by_source)
+            if not n.startswith("_") and n != "manual"
+            and any(not k.startswith("_") and isinstance(v, (int, float))
+                    for k, v in by_source[n].items())]
+    dead = [n for n in sorted(by_source)
+            if not n.startswith("_") and n != "manual" and n not in live]
+    print(f"\n  connection: {len(live)} of {len(live) + len(dead)} live sources answered"
+          + (f"; SILENT: {', '.join(dead)}" if dead else "; none silent"))
+
     print(f"\n  {'INDICATOR':12} {'VALUE':>12}  {'FROM':9} {'AS OF':11} {'AGE':>5}  EXPECTED")
     print("  " + "-" * 78)
     missing, offlist, stale_at_source, undated = [], [], [], []
@@ -1656,9 +1758,12 @@ def sources_report():
     if offlist:
         print(f"  came from a fallback, not their live source: {', '.join(offlist)}")
     if stale_at_source:
-        print(f"  the source answered but its figure is old: {', '.join(stale_at_source)}")
-        print("  collecting more often will not move these. Either the publisher has")
+        print(f"  past its own publication cycle: {', '.join(stale_at_source)}")
+        print("  These are old by the standard of how often that figure is published,")
+        print("  so collecting more often will not move them. Either the publisher has")
         print("  stopped, or the scraper is reading a row that no longer updates.")
+        print("  An annual or quarterly figure being months old is normal and is not")
+        print("  listed here; the thresholds allow for each series' publication lag.")
     if undated:
         print(f"  typed but carrying no date, so age cannot be judged: {', '.join(undated)}")
     if not missing and not offlist and not stale_at_source and not undated:
@@ -1781,6 +1886,11 @@ def main():
         health_report(); return
     if SOURCES:
         sources_report(); return
+    if TABLES:
+        i = sys.argv.index("--tables")
+        if i + 1 >= len(sys.argv):
+            print("usage: kenya_pulse.py --tables <url>"); return
+        tables_report(sys.argv[i + 1]); return
 
     t0 = time.time()
     log(f"Kenya Pulse{' (fast)' if FAST else ''}")

@@ -211,6 +211,30 @@ This is the command to run first when a rate looks frozen. The `AS OF` column
 is the reading's own publication date, not when it was fetched — which is the
 distinction that took a week to spot by hand.
 
+The first line answers the connection question on its own:
+
+```
+connection: 7 of 8 live sources answered; SILENT: cbkbills
+```
+
+**Old is not the same as overdue.** Quarterly GDP is published about three
+months after the quarter ends, so a 155-day-old GDP reading is a normal one.
+Each threshold is the series' cycle *plus* its publication lag, so a figure is
+only flagged when it genuinely should have been replaced by now. That matters:
+a flag that fires every run on normal data is a flag nobody reads, and it is
+the only thing that would have shown the 182-day bill going quiet.
+
+### Looking at a page before writing a scraper for it
+
+```bash
+kp --tables https://www.centralbank.go.ke/bills-bonds/treasury-bills/
+```
+
+Prints every table on a page — its headers, its first rows, its size — plus any
+spreadsheet it links to. Written after a scraper matched the wrong table on
+that page and reported a 2016 rate as current. Guessing at markup from a
+distance is how that happens.
+
 ## A4 · Dry run — read the ladder before writing anything
 
 ```bash
