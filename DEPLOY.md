@@ -56,15 +56,36 @@ Two other messages worth telling apart:
 
 ---
 
-## 0.1 · Unpack
+## 0.1 · Get the code, and prove it is current
+
+The source of truth is `github.com/bgachichio/kenya-pulse`, not a tarball in
+Downloads. Deploying from a stale extraction is how a build once went out with
+the wrong service worker and no push at all: everything succeeded, and the
+wrong thing shipped.
 
 ```bash
-cd ~/Downloads/files
-tar -xzf kenya-pulse-package.tar.gz
-cd kenya-pulse && ls
+SRC=~/kenya-pulse-src
+if [ -d "$SRC/.git" ]; then
+  git -C "$SRC" pull origin main
+else
+  git clone -b main https://github.com/bgachichio/kenya-pulse "$SRC"
+fi
+cd "$SRC" && git log --oneline -1 && git status --short
 ```
 
-**You should see** `app  kenya_pulse.py  manual.example.json  requirements.txt  sheet-template.csv  tests`
+**You should see** one commit line and nothing else. Anything listed under
+`git status` is a local edit that a `pull` did not overwrite — deal with it
+before going on.
+
+Then check the working copy really is what the remote holds:
+
+```bash
+git -C $SRC fetch origin main -q
+[ "$(git -C $SRC rev-parse HEAD)" = "$(git -C $SRC rev-parse origin/main)" ] \
+  && echo "up to date" || echo "BEHIND - pull before deploying"
+```
+
+**You should see** `up to date`. Every command from here runs from `$SRC`.
 
 ---
 
@@ -76,6 +97,7 @@ Section 0 must have been run in this terminal, or every `ssh` below fails with
 `hostname contains invalid characters`.
 
 ```bash
+cd $SRC
 scp $K kenya_pulse.py requirements.txt manual.example.json $V:~/kenya-pulse/
 ssh $K $V "cd ~/kenya-pulse && python3 -m venv .venv && \
            .venv/bin/pip install -q -r requirements.txt && \
