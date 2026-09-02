@@ -1352,6 +1352,50 @@ def remind():
     return len(overdue) + len(undated)
 
 
+def freshness(by_source, man_dates):
+    """How old each reading really is.
+
+    Not when it was fetched - when it was published. A bill auction from
+    six weeks ago is six weeks old however many times it is downloaded, and
+    that difference is the whole point: a source can answer, parse cleanly,
+    and still be handing back a figure nobody has refreshed. Both the live
+    run and --sources read this, so they cannot disagree.
+    """
+    _today = datetime.now(timezone.utc).date().isoformat()
+    fresh = manual_freshness(man_dates)
+    # A rate fetched this morning is current whatever the typed lane thinks.
+    # Without this the MMF rungs inherit a stale date from the typed file and
+    # get marked OLD despite being the freshest figures in the run.
+    for _k in ("mmf_top", "mmf_avg"):
+        if isinstance(by_source.get("serrari", {}).get(_k), (int, float)):
+            fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
+                         "why": "fetched live"}
+    for _k in ("bond10", "infra"):
+        if isinstance(by_source.get("sbonds", {}).get(_k), (int, float)):
+            fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
+                         "why": "fetched live"}
+    # bills carry the auction date, which is the reading's real age
+    _auc = by_source.get("sbills", {}).get("_asof")
+    for _k in ("tbill182", "tbill364"):
+        if isinstance(by_source.get("sbills", {}).get(_k), (int, float)):
+            _age = ((datetime.now(timezone.utc).date()
+                     - datetime.fromisoformat(_auc).date()).days if _auc else 0)
+            fresh[_k] = {"asOf": _auc or _today, "ageDays": _age,
+                         "stale": _age > MANUAL_CADENCE.get(_k, 45),
+                         "why": "last auction"}
+    # Trading Economics reports the period it belongs to, so use that date
+    # rather than today — a July PMI is a July reading whenever it was fetched.
+    for _k, _d in by_source.get("_te_dates", {}).items():
+        if isinstance(by_source.get("te", {}).get(_k), (int, float)):
+            _age = (datetime.now(timezone.utc).date()
+                    - datetime.fromisoformat(_d).date()).days
+            fresh[_k] = {"asOf": _d, "ageDays": _age,
+                         "stale": _age > MANUAL_CADENCE.get(_k, 60),
+                         "why": "fetched live"}
+
+    return fresh
+
+
 def sources_report():
     """What every source actually returned, not merely whether it answered.
 
@@ -1362,10 +1406,13 @@ def sources_report():
     back, so a silently broken parse is visible in one pass.
     """
     by_source, _ = gather()
-    man_vals, _ = src_manual()
-    sheet_vals, _, _ = src_sheet()
+    man_vals, man_dates = src_manual()
+    sheet_vals, sheet_dates, _ = src_sheet()
     man_vals.update(sheet_vals)
+    man_dates.update(sheet_dates)
+    man_dates.update(by_source.get("serrari", {}).get("_asOf", {}))
     by_source["manual"] = man_vals
+    fresh = freshness(by_source, man_dates)
 
     print(f"\n  {'SOURCE':12} {'PARSED':>6}  KEYS")
     print("  " + "-" * 68)
@@ -1379,16 +1426,20 @@ def sources_report():
         print(f"  {name:12} {len(got):>6}  {keys or '(none)'}{flag}")
 
     values, prov, _ = reconcile(by_source)
-    print(f"\n  {'INDICATOR':12} {'VALUE':>12}  {'FROM':10} EXPECTED")
-    print("  " + "-" * 68)
-    missing, offlist = [], []
+    print(f"\n  {'INDICATOR':12} {'VALUE':>12}  {'FROM':9} {'AS OF':11} {'AGE':>5}  EXPECTED")
+    print("  " + "-" * 78)
+    missing, offlist, stale_at_source, undated = [], [], [], []
     for ind, (label, group, unit, direction, freq) in REGISTER.items():
         want = PRECEDENCE.get(ind, ["any"])
         got_from = prov.get(ind)
         v = values.get(ind)
+        f = fresh.get(ind) or {}
+        asof = f.get("asOf") or "-"
+        age = f.get("ageDays")
+        age_s = "-" if age is None else str(age)
         if v is None:
             missing.append(ind)
-            print(f"  {ind:12} {'-':>12}  {'-':10} {'/'.join(want)}   <- MISSING")
+            print(f"  {ind:12} {'-':>12}  {'-':9} {'-':11} {'-':>5}  {'/'.join(want)}   <- MISSING")
             continue
         # A figure that arrived from a lower-ranked source than it should have
         # is the quiet failure: it is present, it is just not from the place
@@ -1397,8 +1448,24 @@ def sources_report():
         stale_src = bool(want) and want[0] != "any" and got_from != want[0]
         if stale_src:
             offlist.append(ind)
-        print(f"  {ind:12} {v:>12g}  {got_from or '?':10} {'/'.join(want)}"
-              f"{'   <- fell back' if stale_src else ''}")
+        # The third failure mode, and the one that hides. The site answered, the
+        # scrape parsed, a number came back - and nobody upstream has published
+        # a new one for weeks. Neither reachability nor a parse check sees this.
+        # Three different problems, kept apart. A figure with no date at all was
+        # typed and never dated - that is a housekeeping job. A figure with a
+        # date older than its own cycle means the publisher has stopped, which
+        # no amount of collecting will fix.
+        no_date = bool(f.get("stale")) and age is None and not stale_src
+        old_at_source = bool(f.get("stale")) and age is not None and not stale_src
+        if no_date:
+            undated.append(ind)
+        if old_at_source:
+            stale_at_source.append(f"{ind} ({age}d)")
+        note = ("   <- fell back" if stale_src
+                else "   <- SOURCE IS STALE" if old_at_source
+                else "   <- no date" if no_date else "")
+        print(f"  {ind:12} {v:>12g}  {got_from or '?':9} {asof:11} {age_s:>5}  "
+              f"{'/'.join(want)}{note}")
 
     filled = [k for k in REGISTER if k in values]
     print(f"\n  {len(filled)} of {len(REGISTER)} indicators have a figure.")
@@ -1409,8 +1476,15 @@ def sources_report():
         print(f"  missing entirely: {', '.join(missing)}")
     if offlist:
         print(f"  came from a fallback, not their live source: {', '.join(offlist)}")
-    if not missing and not offlist:
-        print("  every indicator came from the source it is supposed to come from.")
+    if stale_at_source:
+        print(f"  the source answered but its figure is old: {', '.join(stale_at_source)}")
+        print("  collecting more often will not move these. Either the publisher has")
+        print("  stopped, or the scraper is reading a row that no longer updates.")
+    if undated:
+        print(f"  typed but carrying no date, so age cannot be judged: {', '.join(undated)}")
+    if not missing and not offlist and not stale_at_source and not undated:
+        print("  every indicator came from the source it is supposed to come from,")
+        print("  and none of them is older than its own publication cycle.")
     return 0 if not missing else 1
 
 
@@ -1540,37 +1614,7 @@ def main():
     man_dates.update(sheet_dates)
     man_dates.update(by_source.get("serrari", {}).get("_asOf", {}))
     by_source["manual"] = man_vals
-    fresh = manual_freshness(man_dates)
-    # A rate fetched this morning is current whatever the typed lane thinks.
-    # Without this the MMF rungs inherit a stale date from the typed file and
-    # get marked OLD despite being the freshest figures in the run.
-    _today = datetime.now(timezone.utc).date().isoformat()
-    for _k in ("mmf_top", "mmf_avg"):
-        if isinstance(by_source.get("serrari", {}).get(_k), (int, float)):
-            fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
-                         "why": "fetched live"}
-    for _k in ("bond10", "infra"):
-        if isinstance(by_source.get("sbonds", {}).get(_k), (int, float)):
-            fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
-                         "why": "fetched live"}
-    # bills carry the auction date, which is the reading's real age
-    _auc = by_source.get("sbills", {}).get("_asof")
-    for _k in ("tbill182", "tbill364"):
-        if isinstance(by_source.get("sbills", {}).get(_k), (int, float)):
-            _age = ((datetime.now(timezone.utc).date()
-                     - datetime.fromisoformat(_auc).date()).days if _auc else 0)
-            fresh[_k] = {"asOf": _auc or _today, "ageDays": _age,
-                         "stale": _age > MANUAL_CADENCE.get(_k, 45),
-                         "why": "last auction"}
-    # Trading Economics reports the period it belongs to, so use that date
-    # rather than today — a July PMI is a July reading whenever it was fetched.
-    for _k, _d in by_source.get("_te_dates", {}).items():
-        if isinstance(by_source.get("te", {}).get(_k), (int, float)):
-            _age = (datetime.now(timezone.utc).date()
-                    - datetime.fromisoformat(_d).date()).days
-            fresh[_k] = {"asOf": _d, "ageDays": _age,
-                         "stale": _age > MANUAL_CADENCE.get(_k, 60),
-                         "why": "fetched live"}
+    fresh = freshness(by_source, man_dates)
 
     values, prov, disagree = reconcile(by_source)
     state = load_state()

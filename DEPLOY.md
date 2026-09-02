@@ -34,6 +34,22 @@ echo "V=$V"; echo "K=$K"; ssh $K $V "echo reachable"
 **You should see** the two values, then `reachable`. It writes the file the
 first time and reads it every time after.
 
+### One more line, and the collector gets a lot easier
+
+The collector runs as `kpulse`, from a fixed directory, with an environment
+file sourced first. That is a mouthful to retype and easy to get subtly wrong,
+so it goes in a function:
+
+```bash
+kp() { ssh $K $V "sudo -u kpulse bash -c 'cd /home/bgkaranja/kenya-pulse && \
+  set -a && . /home/bgkaranja/secrets/kenya-pulse.env && set +a && \
+  /usr/bin/python3 kenya_pulse.py $*'"; }
+kp --health | tail -3
+```
+
+Every collector command below is `kp <flags>`. It matches what cron actually
+runs, line for line, so a command that works here works on the schedule.
+
 ### If you see `hostname contains invalid characters`
 
 That is this, and only this. With `$K` and `$V` empty, `ssh $K $V "long
@@ -91,32 +107,58 @@ git -C $SRC fetch origin main -q
 
 # PART A · The collector
 
-## A1 · Copy it up, with pinned dependencies
+## A1 · Copy it up
 
-Section 0 must have been run in this terminal, or every `ssh` below fails with
-`hostname contains invalid characters`.
+**This VM runs the collector as a dedicated service account, `kpulse`.** Not as
+`bgkaranja`, and not as root. `~/kenya-pulse` and everything in it belongs to
+`kpulse`; your login cannot write there, which is correct and worth keeping —
+the thing that touches the internet on a schedule should not own your home
+directory.
+
+So a copy is two steps: `scp` into `/tmp`, which you can write, then `install`
+into place as `kpulse`.
 
 ```bash
 cd $SRC
-scp $K kenya_pulse.py requirements.txt manual.example.json $V:~/kenya-pulse/
-ssh $K $V "cd ~/kenya-pulse && python3 -m venv .venv && \
-           .venv/bin/pip install -q -r requirements.txt && \
-           .venv/bin/python -c 'import requests,bs4,lxml; print(\"deps ok\")' && \
-           wc -l kenya_pulse.py"
+scp $K kenya_pulse.py requirements.txt manual.example.json $V:/tmp/
+ssh $K $V "sudo install -o kpulse -g kpulse -m 600 /tmp/kenya_pulse.py ~/kenya-pulse/ && \
+           sudo install -o kpulse -g kpulse -m 644 /tmp/requirements.txt /tmp/manual.example.json ~/kenya-pulse/ && \
+           rm -f /tmp/kenya_pulse.py /tmp/requirements.txt /tmp/manual.example.json && \
+           sudo -u kpulse /usr/bin/python3 -c 'import requests,bs4,lxml; print(\"deps ok\")' && \
+           sudo wc -l ~/kenya-pulse/kenya_pulse.py"
 ```
 
-**You should see** `deps ok`, then the line count.
+**You should see** `deps ok`, then the line count of what you just copied. If
+the count still reads the old one, the `install` did not run — check the
+`sudo` output rather than carrying on.
 
-**A virtualenv, not `pip3 install --user`.** Debian 12 marks its system Python
-externally managed, so `pip3 install --user` fails with
-`error: externally-managed-environment` and installs nothing. The push service
-already runs from `.venv-push` for the same reason; the collector gets `.venv`.
+`kenya_pulse.py` goes in at `600` because that is how it already sits; the
+other two are world-readable and stay that way.
 
-Everything below calls `~/kenya-pulse/.venv/bin/python`, never a bare
-`python3`, so cron and your shell run the same interpreter with the same
-packages.
+**No virtualenv.** `/usr/bin/python3` on this box already carries `requests`,
+`beautifulsoup4` and `lxml`, installed as system packages, which is the right
+answer on Debian and sidesteps the externally-managed-environment error
+entirely. The push service has `.venv-push` because it needs pinned versions of
+`pywebpush` and `cryptography` that Debian does not ship. The collector needs
+neither. Do not add one — a second environment nothing runs from is a place for
+the two to drift apart.
 
-Unpinned installs were a G3 auto-fail. `requirements.txt` fixes that.
+### Never write into that directory as yourself
+
+```bash
+# wrong - and it breaks the push service, which runs as kpulse
+sudo chown -R bgkaranja:bgkaranja ~/kenya-pulse
+```
+
+`push-subscriptions.json` is mode `600`. Change its owner and `kpulse` can no
+longer read the subscriber list; the API stays up and quietly sends nothing.
+If it has already happened:
+
+```bash
+ssh $K $V "sudo chown -R kpulse:kpulse ~/kenya-pulse && \
+           sudo systemctl restart kenya-pulse-push && \
+           curl -s http://127.0.0.1:8100/health"
+```
 
 ## A2 · Your typed figures
 
@@ -133,7 +175,7 @@ annual source, relabelled where the measure differs.
 Two checks, and the second is the one that matters.
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --health"
+kp --health
 ```
 
 **You should see** `10 of 10 reachable`. Eight is enough to proceed.
@@ -144,7 +186,7 @@ figure is carried forward, and the app shows a stale rate wearing a fresh date.
 That is the failure nobody notices. So also run:
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --sources"
+kp --sources
 ```
 
 **You should see** a row per source with the keys it actually parsed, then a row
@@ -162,7 +204,7 @@ This is the command to run first when a rate looks frozen.
 ## A4 · Dry run — read the ladder before writing anything
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --dry" | tail -40
+kp --dry | tail -40
 ```
 
 **You should see** ten rungs, infrastructure bonds at the top near **11.77%**, a
@@ -173,116 +215,128 @@ If those rates look wrong, a source has changed shape. Stop.
 ## A5 · Write it live
 
 ```bash
-ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py"
+kp
 curl -s https://gachichio.org/pulse/data.json | head -c 60; echo
 ```
 
 **You should see** ~40 seconds, then JSON beginning `{"asOf":"2026-`.
 
-## A6 · Put it on a schedule
+## A6 · Change the schedule
 
-The collector had no documented schedule, which is why rates could sit
-unchanged for a fortnight: nothing was running.
-
-**Cron runs on the machine's clock, not on UTC.** So the timezone is pinned in
-the crontab rather than assumed, and the times below are Nairobi times.
+There already is one, in **`kpulse`'s** crontab — not yours, which is why
+`crontab -l` as `bgkaranja` shows only the push sender. Look before you write:
 
 ```bash
-ssh $K $V "crontab -l 2>/dev/null | grep -Ev 'kenya_pulse\.py|^CRON_TZ=' | {
-  cat
-  echo 'CRON_TZ=Africa/Nairobi'
-  echo '20 18 * * *  cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --fast >> ~/collect.log 2>&1'
-  echo '40 18 * * 1  cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py       >> ~/collect.log 2>&1'
-  echo '5   3 1 * *  cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --compact >> ~/collect.log 2>&1'
-} | crontab -"
+ssh $K $V "date; echo '---'; sudo crontab -u kpulse -l | grep -v '^#'"
 ```
 
-- **Daily, 18:20 Nairobi**, `--fast`: rates, markets and currency, about 15
-  seconds. Evening rather than morning so the day's CBK and NSE figures are
-  already published when it runs.
-- **Mondays, 18:40 Nairobi**, the full sweep: adds the IMF and World Bank
-  series and the long history. About 3 minutes.
-- **1st of the month, 03:05**, `--compact`: rolls history older than two years
-  into gzipped archives.
+What it currently says, and the problem with it:
 
-Odd minutes, so this never lines up with the push sender on `*/5`.
+| Line | Runs | |
+|---|---|---|
+| `0 7 1,16 * *` | full sweep on the 1st and 16th | **twice a month** |
+| `0 7 * * 6` | `--fast` on Saturdays | weekly |
+| `0 4 1 1 *` | `--compact` on 1 January | yearly |
+| `*/5 * * * *` | the push sender | leave alone |
 
-`CRON_TZ` goes **after** the existing entries, not before them. A cron
-environment line applies to every line below it, so putting it at the top would
-have quietly re-timed whatever else is in there — certbot at `0 2 * * *` would
-have moved by three hours. Placed last, it governs the three collector lines
-and nothing else.
+`date` says this VM is on **UTC**, so `0 7` is 07:00 UTC, 10:00 in Nairobi.
 
-The `grep -Ev` makes it safe to run twice: it strips any previous collector
-lines and `CRON_TZ` before re-adding them, and leaves everything else — the
-push sender, certbot — untouched. Tested against an empty crontab, a populated
-one, and three consecutive applications.
+The change: the full sweep moves from twice a month to weekly, and the fast
+pass from weekly to daily. Everything else about those lines — the environment
+file, `/usr/bin/python3`, `run.log` — stays exactly as it is.
 
-### Stop the log growing for ever
+```bash
+ssh $K $V "sudo crontab -u kpulse -l | grep -v kenya_pulse.py | {
+  cat
+  echo '20 15 * * *  cd /home/bgkaranja/kenya-pulse && set -a && . /home/bgkaranja/secrets/kenya-pulse.env && set +a && /usr/bin/python3 kenya_pulse.py --fast >> /home/bgkaranja/kenya-pulse/run.log 2>&1'
+  echo '40 15 * * 1  cd /home/bgkaranja/kenya-pulse && set -a && . /home/bgkaranja/secrets/kenya-pulse.env && set +a && /usr/bin/python3 kenya_pulse.py >> /home/bgkaranja/kenya-pulse/run.log 2>&1'
+  echo '5 3 1 * *    cd /home/bgkaranja/kenya-pulse && set -a && . /home/bgkaranja/secrets/kenya-pulse.env && set +a && /usr/bin/python3 kenya_pulse.py --compact >> /home/bgkaranja/kenya-pulse/run.log 2>&1'
+} | sudo crontab -u kpulse -"
+```
 
-`collect.log` gains about 2.5 KB a run, so roughly **1 MB a year** with nothing
-to bound it. `push.log` has the same problem. One rotation covers both:
+- **Daily, 15:20 UTC** (18:20 Nairobi), `--fast`. Evening in Nairobi, so the
+  day's CBK and NSE figures are published before it runs.
+- **Mondays, 15:40 UTC**, the full sweep.
+- **1st of the month, 03:05 UTC**, `--compact` — monthly rather than the
+  previous once a year.
+
+Absolute paths, not `~`: cron runs this as `kpulse`, whose home is not
+`/home/bgkaranja`, so a tilde would resolve somewhere else entirely. The
+existing lines already do this and the new ones match them.
+
+`grep -v kenya_pulse.py` strips the three old collector lines and leaves the
+push sender, which names `push_server.py`. Safe to run twice.
+
+### Confirm
+
+```bash
+ssh $K $V "sudo crontab -u kpulse -l | grep -v '^#'"
+```
+
+**You should see** four lines: three collector, one push. Not seven — if you
+see seven, the old ones were not stripped and you now have two schedules
+writing the same files. Re-run the block above.
+
+Then force one pass and watch it land:
+
+```bash
+kp --fast | tail -5
+ssh $K $V "sudo tail -5 /home/bgkaranja/kenya-pulse/run.log"
+```
+
+### Stop run.log growing for ever
+
+A run prints about 2.5 KB. Daily, that is roughly a megabyte a year with
+nothing bounding it, and `push.log` has the same problem.
 
 ```bash
 ssh $K $V "sudo tee /etc/logrotate.d/kenya-pulse > /dev/null" <<'CONF'
-/home/bgkaranja/collect.log /home/bgkaranja/push.log {
+/home/bgkaranja/kenya-pulse/run.log /home/bgkaranja/kenya-pulse/push.log {
     weekly
     rotate 4
     compress
     missingok
     notifempty
     copytruncate
+    su kpulse kpulse
+    create 0644 kpulse kpulse
 }
 CONF
-ssh $K $V "sudo logrotate -d /etc/logrotate.d/kenya-pulse 2>&1 | tail -5"
+ssh $K $V "sudo logrotate -d /etc/logrotate.d/kenya-pulse 2>&1 | tail -6"
 ```
 
-**You should see** logrotate's dry run naming both files and no error. A month
-of logs, compressed, then discarded.
+`su kpulse kpulse` and `create` matter: the files belong to the service
+account, and logrotate must not hand them to root on the first rotation.
 
 ### What it costs
 
 | | |
 |---|---|
-| History rows | 1.1 KB each · 417 runs a year · **436 KB a year** |
-| Older than two years | archived gzipped by `--compact` |
+| History rows | 1.1 KB each · 417 runs a year · **436 KB a year**, from 25 KB |
+| Older than two years | archived gzipped by `--compact`, now monthly |
 | `data.json` | 16 KB, overwritten each run, never appended |
-| `collect.log` | ~2.5 KB a run, held to four compressed weeks |
+| `run.log` | ~2.5 KB a run, held to four compressed weeks |
 | Memory | one Python process, 15 seconds a day and 3 minutes a week |
 | Supabase | untouched |
 
-### Why collecting more often does not spoil the charts
+### What this fixes, and what it does not
+
+Collecting more often fixes a figure that moves faster than you were looking.
+It does **nothing** for a figure whose publisher has stopped — asking a source
+frozen on 16 July five times a day returns the same number five times a day.
+`kp --sources` tells the two apart, and marks the second `SOURCE IS STALE`.
+
+### Why the charts do not get worse
 
 History is one row per run, so a monthly figure sampled daily would have drawn
 two dozen identical points — a flat line about a series that moves every month.
-The collector now stores the levels a figure has taken rather than the times it
-was looked at, so a sparkline reads the same whatever the schedule.
+The collector stores the levels a figure has taken rather than the times it was
+looked at, so a sparkline reads the same whatever the schedule.
 
-The mixed schedule is safe for the slow series too. A `--fast` row simply omits
-the indicators it does not collect, and `score()` skips absent keys rather than
-reading them as gaps, so an annual figure's history and its prior are built
-only from the full runs that actually carry it. Checked in
-`tests/collector_test.py`.
-
-### Confirm it took
-
-```bash
-ssh $K $V "date; crontab -l | grep -E 'CRON_TZ|kenya_pulse'"
-```
-
-**You should see** `CRON_TZ=Africa/Nairobi` and the three lines. `date` tells
-you the machine's own clock, which is what cron would have used without that
-first line.
-
-Then wait for the next daily pass, or force one now:
-
-```bash
-ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --fast" | tail -5
-ssh $K $V "tail -5 ~/collect.log"
-```
-
-If `crontab -` rejects `CRON_TZ=` — some very old cron builds do — drop that
-line and read the times as the machine's local clock, which `date` prints.
+The mixed schedule is safe for the slow series too. A `--fast` row omits the
+indicators it does not collect, and `score()` skips absent keys rather than
+reading them as gaps, so an annual figure's history and prior are built only
+from the full runs that carry it. Checked in `tests/collector_test.py`.
 
 ## A7 · Rollback, tested not assumed
 

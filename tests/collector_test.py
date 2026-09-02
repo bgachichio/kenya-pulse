@@ -197,6 +197,49 @@ ok("and cannot exceed the register it counts against",
 ok("keys collected but not registered are listed separately, not counted",
    "collected but not registered" in out and "mmf_top" in out, "")
 
+print("\n── A SOURCE THAT ANSWERS, PARSES, AND IS STILL STALE")
+# The failure that hid for weeks and that neither --health nor a parse check
+# sees: serrarigroup answered, the table parsed, 8.97% came back - and the
+# auction it belongs to was six weeks old. Reachability said fine. Parsing
+# said fine. The number was stale at the publisher.
+kp.src_serrari_bills = lambda: {"tbill182": 8.97, "tbill364": 9.04,
+                                "_asof": "2026-07-16"}
+kp.src_te = lambda: ({"pmi": 50.1}, {"pmi": "2026-08-01"})
+kp.src_manual = lambda: ({"npl": 16.4, "reserves": 10.2, "cover": 4.9,
+                          "cab": -3.0, "gdp": 5.3, "debt": 11.6,
+                          "debt_gdp": 69.9, "debtserv": 61.0},
+                         {"npl": "2026-08-20", "reserves": "2026-08-25"})
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    kp.sources_report()
+out2 = buf.getvalue()
+
+ok("the reading's own date is shown, not the time it was fetched",
+   "2026-07-16" in out2, "")
+ok("its age in days is shown beside it",
+   re.search(r"tbill182.*2026-07-16\s+\d+", out2) is not None,
+   [l for l in out2.splitlines() if "tbill182" in l])
+ok("and it is called out rather than left to be noticed",
+   re.search(r"tbill182.*SOURCE IS STALE", out2) is not None,
+   [l for l in out2.splitlines() if "tbill182" in l])
+ok("the summary says plainly that collecting more often will not help",
+   "collecting more often will not move these" in out2, "")
+ok("a value is still reported - it is stale, not missing",
+   re.search(r"tbill182\s+8\.97", out2) is not None, "")
+ok("it is NOT reported as having fallen back, because the scraper worked",
+   not re.search(r"tbill182.*fell back", out2), "")
+
+# and the three problems stay apart
+ok("a figure typed with a recent date is not flagged",
+   not re.search(r"\bnpl\b.*(STALE|no date)", out2),
+   [l for l in out2.splitlines() if l.strip().startswith("npl ")])
+ok("a figure typed with no date at all is a separate, milder note",
+   "typed but carrying no date" in out2 and "cab" in out2.split("typed but carrying no date")[1],
+   "")
+ok("a fresh live source is flagged as nothing at all",
+   not re.search(r"\bcbr\b.*(STALE|fell back|no date)", out2),
+   [l for l in out2.splitlines() if l.strip().startswith("cbr ")])
+
 print("\n── THE SESSION VARIABLES EVERY OTHER COMMAND DEPENDS ON")
 # $V and $K are shell variables. They live only in the terminal they were typed
 # into, and 37 commands in the guide use them. A new tab loses them and every
@@ -276,8 +319,9 @@ import tempfile
 import textwrap
 
 deploy = (ROOT / "DEPLOY.md").read_text()
-a6 = deploy[deploy.index("## A6 · Put it on a schedule"):deploy.index("## A7 ")]
-block = a6.split("```bash", 1)[1].split("```", 1)[0].strip()
+a6 = deploy[deploy.index("## A6 · Change the schedule"):deploy.index("## A7 ")]
+# the first fence in A6 only looks; the second is the one that writes
+block = a6.split("```bash")[2].split("```", 1)[0].strip()
 ok("the A6 cron block is still findable", "crontab -" in block, block[:60])
 
 # unwrap `ssh $K $V "…"` so the inner script runs locally
@@ -288,8 +332,10 @@ with tempfile.TemporaryDirectory() as tmp:
     fake = tmp / "crontab"
     fake.write_text(textwrap.dedent("""\
         #!/bin/bash
-        # faithful crontab(1): the writer drains stdin before replacing the spool
+        # faithful crontab(1): understands -u, and the writer drains stdin
+        # before replacing the spool, the way Debian's does
         STORE="$CRONTEST_STORE"
+        if [ "$1" = "-u" ]; then USER_ARG="$2"; shift 2; fi
         case "$1" in
           -l) [ -s "$STORE" ] || { echo "no crontab" >&2; exit 1; }; cat "$STORE";;
           -)  t=$(mktemp); cat > "$t"; mv "$t" "$STORE";;
@@ -297,6 +343,9 @@ with tempfile.TemporaryDirectory() as tmp:
         esac
         """))
     fake.chmod(0o755)
+    # and a sudo that just runs what it is given
+    (tmp / "sudo").write_text('#!/bin/bash\nexec "$@"\n')
+    (tmp / "sudo").chmod(0o755)
     store = tmp / "spool"
     env = {**__import__("os").environ,
            "PATH": f"{tmp}:{__import__('os').environ['PATH']}",
@@ -312,10 +361,13 @@ with tempfile.TemporaryDirectory() as tmp:
     ok("and installs three collector entries",
        store.read_text().count("kenya_pulse.py") == 3, store.read_text())
 
-    # 2. a populated one, applied three times
+    # 2. the real starting state on the VM: three old collector lines plus the
+    #    push sender, all in kpulse's crontab
     store.write_text(
-        "*/5 * * * * ~/kenya-pulse/.venv-push/bin/python push_server.py --send-due\n"
-        "0 2 * * * /usr/bin/certbot renew --quiet\n")
+        "0 7 1,16 * *  cd /home/bgkaranja/kenya-pulse && /usr/bin/python3 kenya_pulse.py >> run.log 2>&1\n"
+        "0 7 * * 6     cd /home/bgkaranja/kenya-pulse && /usr/bin/python3 kenya_pulse.py --fast >> run.log 2>&1\n"
+        "0 4 1 1 *     cd /home/bgkaranja/kenya-pulse && /usr/bin/python3 kenya_pulse.py --compact >> run.log 2>&1\n"
+        "*/5 * * * * cd /home/bgkaranja/kenya-pulse && .venv-push/bin/python push_server.py --send-due >> push.log 2>&1\n")
     for _ in range(3):
         r = run()
         assert r.returncode == 0, r.stderr
@@ -323,32 +375,36 @@ with tempfile.TemporaryDirectory() as tmp:
     lines = [l for l in out.splitlines() if l.strip()]
     ok("running it three times leaves three collector entries, not nine",
        out.count("kenya_pulse.py") == 3, str(out.count("kenya_pulse.py")))
+    ok("the old twice-monthly line is gone", "1,16" not in out, out)
     ok("the push sender survives untouched", out.count("send-due") == 1)
-    ok("so does anything else already scheduled", out.count("certbot") == 1)
-    ok("exactly one timezone line", out.count("CRON_TZ=") == 1)
+    ok("it writes to kpulse's crontab, not the caller's",
+       "crontab -u kpulse" in inner, inner[:80])
 
-    # 3. the placement that matters: a cron env line governs what follows it,
-    #    so anything already there must sit ABOVE it and keep its own hours.
-    tz_at = next(i for i, l in enumerate(lines) if l.startswith("CRON_TZ="))
-    certbot_at = next(i for i, l in enumerate(lines) if "certbot" in l)
-    coll_at = [i for i, l in enumerate(lines) if "kenya_pulse.py" in l]
-    ok("existing jobs sit above the timezone line, so their hours do not move",
-       certbot_at < tz_at, f"certbot at {certbot_at}, CRON_TZ at {tz_at}")
-    ok("and every collector line sits below it",
-       all(i > tz_at for i in coll_at), f"{coll_at} vs {tz_at}")
+    # 3. everything the existing lines depend on has to survive
+    coll = [l for l in lines if "kenya_pulse.py" in l]
+    ok("every line still sources the environment file",
+       all("kenya-pulse.env" in l for l in coll), str(coll[:1]))
+    ok("every line still uses the system python that has the packages",
+       all("/usr/bin/python3" in l for l in coll), str(coll[:1]))
+    ok("no line invents a virtualenv the box does not have",
+       not any(".venv/bin" in l for l in coll))
+    ok("every line still logs where the old ones logged",
+       all("run.log" in l for l in coll), str(coll[:1]))
+    ok("paths are absolute, because kpulse's home is not bgkaranja's",
+       not any(" ~/" in l for l in coll), str([l for l in coll if " ~/" in l]))
 
     # 4. the entries themselves
     fields = [l.split()[:5] for l in lines if "kenya_pulse.py" in l]
     ok("each entry has five schedule fields",
        all(len(f) == 5 for f in fields), str(fields))
-    ok("one runs every day", any(f[2:] == ["*", "*", "*"] for f in fields), str(fields))
-    ok("one runs weekly on a single weekday",
+    ok("the fast pass now runs every day, not weekly",
+       any(f[2:] == ["*", "*", "*"] for f in fields), str(fields))
+    ok("the full sweep now runs weekly, not twice a month",
        any(f[2] == "*" and f[4] in list("0123456") for f in fields), str(fields))
-    ok("nothing runs more than once a day",
+    ok("nothing runs more often than daily",
        all("/" not in f[0] and "/" not in f[1] for f in fields), str(fields))
-    ok("every entry calls the virtualenv, never a bare python3",
-       all(".venv/bin/python" in l for l in lines if "kenya_pulse.py" in l)
-       and not any("python3 kenya_pulse" in l for l in lines), out)
+    ok("compact runs monthly, not yearly",
+       any(f[3] == "*" and f[2] == "1" for f in fields), str(fields))
 
 print("\n── THE WATCHDOG STILL GUARDS SILENCE")
 state = {}
