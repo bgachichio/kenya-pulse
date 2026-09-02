@@ -94,28 +94,100 @@ const tzName = () => {
   catch { return "Africa/Nairobi"; }
 };
 
+/* navigator.serviceWorker.ready never rejects and never times out. If the
+   worker failed to install - which is exactly what a fresh install after a
+   delete can hit - it simply never resolves, and the switch sits on
+   "Scheduling..." for ever with nothing to tell the reader. So: register it
+   here if nothing has, and put a deadline on the wait. A message beats a
+   spinner that never ends. */
+async function workerReady(ms = 12000) {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    throw new Error("this browser has no background worker");
+  }
+  let reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) {
+    try { reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" }); }
+    catch (e) { throw new Error(`the background worker would not install (${e.name})`); }
+  }
+  let timer;
+  try {
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, rej) => {
+        timer = setTimeout(() => rej(new Error("the background worker did not start")), ms);
+      }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+/* Was this subscription minted with the key the server is signing with now?
+   A subscription from a previous install, or from before the keys were
+   rotated, looks perfectly healthy and silently never delivers. Reusing one
+   is only safe when the keys match. */
+function sameKey(sub, keyB64) {
+  try {
+    const have = sub.options && sub.options.applicationServerKey;
+    if (!have) return false;
+    const a = new Uint8Array(have), b = keyBytes(keyB64);
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  } catch { return false; }
+}
+
+/* The server's key, for as long as this page lives. Held in memory only: a
+   reload picks up a rotated key, while changing the time three times in one
+   sitting does not ask for it three times. */
+let serverKeyMemo = null;
+async function serverKey() {
+  if (serverKeyMemo) return serverKeyMemo;
+  const kr = await fetch(`${PUSH_API}/key`, { cache: "no-store" });
+  if (!kr.ok) throw new Error(`the server would not hand over its key (${kr.status})`);
+  const { key } = await kr.json();
+  if (!key) throw new Error("the server has no key configured");
+  serverKeyMemo = key;
+  return key;
+}
+
 async function pushSubscribe({ time, days }) {
   try {
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await workerReady();
+    const key = await serverKey();
+
     let sub = await reg.pushManager.getSubscription();
+    /* A stale subscription is worse than none, so it is thrown away rather
+       than sent on. subscribe() would refuse it anyway with InvalidStateError. */
+    if (sub && !sameKey(sub, key)) {
+      try { await sub.unsubscribe(); } catch { /* already gone */ }
+      sub = null;
+    }
     if (!sub) {
-      const kr = await fetch(`${PUSH_API}/key`, { cache: "no-store" });
-      if (!kr.ok) throw new Error(`key ${kr.status}`);
-      const { key } = await kr.json();
-      if (!key) throw new Error("no key");
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true, applicationServerKey: keyBytes(key),
       });
     }
+
     const r = await fetch(`${PUSH_API}/subscribe`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ subscription: sub.toJSON(), time, days, tz: tzName() }),
     });
-    if (!r.ok) throw new Error(`subscribe ${r.status}`);
+    if (!r.ok) throw new Error(`the server refused the schedule (${r.status})`);
     return { ok: true, msg: "" };
   } catch (e) {
     return { ok: false, msg: `Could not schedule it - ${e.message}. Try again once you are online.` };
   }
+}
+
+/* Does the device still hold a live subscription? After the app is deleted and
+   installed again the browser starts empty, while the switch is remembered as
+   on, so the app claims a briefing is coming that nothing will send. */
+async function pushAlive() {
+  try {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return false;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg || !reg.pushManager) return false;
+    return !!(await reg.pushManager.getSubscription());
+  } catch { return false; }
 }
 
 /* When the next one will actually arrive. Without this the app is silent
@@ -147,7 +219,9 @@ function whenPhrase(next, from) {
 
 async function pushUnsubscribe() {
   try {
-    const reg = await navigator.serviceWorker.ready;
+    /* Same deadline as subscribing. A worker that never starts must not leave
+       a promise hanging off the switch for the life of the page. */
+    const reg = await workerReady(8000);
     const sub = await reg.pushManager.getSubscription();
     if (!sub) return;
     /* Tell the server first: a subscription it still holds would keep firing
@@ -262,6 +336,52 @@ const C = {
    clicks or reads at length is Inter. Every size is rem, so the font-size
    toggle moves the whole system from one variable. */
 const MONO = "var(--font-narrative)";
+
+/* Collapse repeated levels. The collector already does this, but the seeded
+   readings shipped in this file predate it, and an offline first run draws
+   those. Doing it here as well means the line means the same thing whatever
+   drew it. */
+function levels(hist) {
+  if (!Array.isArray(hist)) return hist;
+  const out = [];
+  for (const v of hist) {
+    if (typeof v !== "number") continue;
+    if (!out.length || Math.abs(out[out.length - 1] - v) > 1e-9) out.push(v);
+  }
+  return out.length ? out : hist;
+}
+
+/* What the row's figure measures, what the line measures, and what the colour
+   means - in one sentence, because these are three different things and the
+   row has space for none of them.
+
+   The confusion this exists to remove: the line can fall while the figure is
+   green. The line is direction; the colour is whether that direction helps.
+   Inflation coming down is a falling line and a good thing at the same time. */
+function changeSentence(i) {
+  const n = Array.isArray(i.hist) ? i.hist.length : 0;
+  /* The line holds the levels this figure has taken, not the times it was
+     looked at, so it reads the same whether the collector runs once a day or
+     twice a month. */
+  const span = n > 1 ? `The line shows its last ${n} distinct levels.` : "";
+  if (i.prior == null || Math.abs(i.value - i.prior) < 1e-9) {
+    return `Unchanged from ${i.priorLabel || "the previous reading"}. ${span}`.trim();
+  }
+  const up = i.value > i.prior;
+  const move = `${up ? "Up" : "Down"} ${fmt(Math.abs(i.value - i.prior), i.unit)} ` +
+    `from ${i.priorLabel || "the previous reading"}.`;
+  /* dir is +1 when a rise is good for the country, -1 when a fall is,
+     0 when it is neither. */
+  const good = i.dir ? (up === (i.dir > 0)) : null;
+  const why = good == null ? ""
+    : good ? " Green because that helps." : " Red because that hurts.";
+  return `${move}${why} ${span}`.trim();
+}
+
+/* State in words. The strip is colour plus height; a screen reader gets
+   neither, so it gets the word instead. */
+const STATE_WORD = { good: "improving", stress: "under pressure",
+  watch: "worth watching", steady: "steady" };
 const T = {
   displaySm:  { fontSize: "2.25rem",   lineHeight: "2.75rem", fontWeight: 400, fontFamily: MONO, letterSpacing: "0em" },
   headlineLg: { fontSize: "2rem",      lineHeight: "2.5rem",  fontWeight: 400, fontFamily: MONO, letterSpacing: "0em" },
@@ -691,7 +811,13 @@ function Spark({ data, colour, h = 30, w = 88 }) {  // w/h set by caller on mobi
 }
 
 function Bars({ years, values, c, unit, narrow }) {
+  /* Two states, not one. A mouse hovers; a finger taps. iOS Safari answers a
+     tap with a synthetic mouseover *and* a click, so a single toggling state
+     sets itself on the mouseover and clears itself on the click that follows,
+     and the bar reads as dead. Hover is mouse-only. A tap pins. */
   const [hover, setHover] = useState(null);
+  const [pinned, setPinned] = useState(null);
+  const sel = pinned != null ? pinned : hover;
   const cl = values.filter(v => v != null);
   if (!cl.length) return null;
   const hi = Math.max(...cl, 0), lo = Math.min(...cl, 0), r = (hi - lo) || 1;
@@ -726,14 +852,35 @@ function Bars({ years, values, c, unit, narrow }) {
             <div style={{ position: "absolute", left: 0, right: 0, top: `${zero}%`,
               borderTop: `1px dashed ${c.line}` }} />
             {values.map((v, i) => {
-              const on = hover === i;
+              const on = sel === i;
               const h = v == null ? 0 : (Math.abs(v) / r) * 100;
               const up = (v ?? 0) >= 0;
               return (
-                <div key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
-                  onClick={() => setHover(on ? null : i)}
+                <button key={i} type="button" className="kp-f"
+                  onPointerEnter={e => { if (e.pointerType === "mouse") setHover(i); }}
+                  onPointerLeave={e => { if (e.pointerType === "mouse") setHover(null); }}
+                  /* Keyboard focus reads as a hover; a tap does not. Tapping a
+                     button focuses it, and without this guard the focus kept the
+                     bar selected after the tap that was meant to clear it. */
+                  onFocus={e => {
+                    /* Safari below 15.4 has no :focus-visible and throws on the
+                       selector. Doing nothing there is the safe way to be wrong:
+                       the keyboard loses a highlight, the tap keeps working. */
+                    try { if (e.target.matches(":focus-visible")) setHover(i); }
+                    catch { /* no :focus-visible; leave the tap alone */ }
+                  }}
+                  onBlur={() => setHover(null)}
+                  onClick={() => setPinned(p => (p === i ? null : i))}
+                  aria-pressed={pinned === i}
+                  aria-label={v == null ? `${years[i]}, not published`
+                    : `${years[i]}, ${fmt(v, unit)}`}
                   title={v == null ? `${years[i]} - not published` : `${years[i]}: ${fmt(v, unit)}`}
                   style={{ flex: 1, minWidth: 0, height: "100%", position: "relative",
+                    padding: 0, border: "none", background: "transparent",
+                    appearance: "none", WebkitAppearance: "none",
+                    /* Safari will not dispatch a click on a bare div reliably, and
+                       adds a 300ms wait without this. A button gets both, free. */
+                    touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
                     cursor: "pointer" }}>
                   {v == null ? (
                     <div style={{ position: "absolute", left: 0, right: 0, bottom: 0,
@@ -746,24 +893,139 @@ function Bars({ years, values, c, unit, narrow }) {
                       opacity: on ? 1 : .84, borderRadius: 4,
                       transition: "background .15s, opacity .15s" }} />
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between",
             fontSize: narrow ? "0.6875rem" : "0.75rem", color: c.faint, marginTop: 4, gap: 4 }}>
             <span style={{ flexShrink: 0 }}>{years[0]}</span>
-            <span style={{ color: hover != null ? c.ink : c.faint,
-              fontWeight: hover != null ? 600 : 400, textAlign: "center",
+            <span style={{ color: sel != null ? c.ink : c.faint,
+              fontWeight: sel != null ? 600 : 400, textAlign: "center",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {hover != null
-                ? `${years[hover]} · ${values[hover] == null ? "not published" : fmt(values[hover], unit)}`
+              {sel != null
+                ? `${years[sel]} · ${values[sel] == null ? "not published" : fmt(values[sel], unit)}`
                 : "tap a bar"}
             </span>
             <span style={{ flexShrink: 0 }}>{years[years.length - 1]}</span>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* Which set of steps to lead with. This is the one place a user-agent sniff is
+   the right tool: nothing behaves differently because of it, it only decides
+   which instructions come first, and every other set stays on the page. */
+function platformGuess() {
+  if (typeof navigator === "undefined") return "desktop";
+  const ua = navigator.userAgent || "";
+  // iPadOS reports itself as a Mac, and is told apart by having a touchscreen
+  const ios = /iPad|iPhone|iPod/.test(ua)
+    || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+  if (ios) return "ios";
+  if (/Android/.test(ua)) return "android";
+  return "desktop";
+}
+
+function installedNow() {
+  try {
+    if (typeof window === "undefined") return false;
+    return window.navigator.standalone === true
+      || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  } catch { return false; }
+}
+
+/* A numbered list that reads like instructions rather than a spec. */
+function Steps({ title, steps, c, lead }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: c.ink, marginBottom: 6 }}>
+        {title}{lead ? " · your device" : ""}
+      </div>
+      <ol style={{ margin: 0, paddingLeft: 20, color: c.dim, fontSize: "0.8125rem",
+        lineHeight: 1.6 }}>
+        {steps.map((t, i) => <li key={i} style={{ marginBottom: 3 }}>{t}</li>)}
+      </ol>
+    </div>
+  );
+}
+
+function HowTo({ c, plat, installed, open, onToggle }) {
+  const blocks = [
+    ["ios", "iPhone and iPad", [
+      "Open the site in Safari. Chrome and Firefox on an iPhone cannot install it, and cannot receive the briefing.",
+      "Tap the Share button - the square with an arrow coming out of it.",
+      "Scroll down the list and tap Add to Home Screen, then Add.",
+      "Open Kenya Pulse from the home screen from now on, not from Safari.",
+    ]],
+    ["android", "Android", [
+      "Open the site in Chrome.",
+      "Tap the three dots at the top right.",
+      "Tap Install app, or Add to Home screen if that is what it says.",
+      "Confirm, and open it from the home screen.",
+    ]],
+    ["desktop", "Computer", [
+      "In Chrome or Edge, click the install icon at the right-hand end of the address bar. If it is not there, use the three dots, then Cast, save and share, then Install page as app.",
+      "In Safari on a Mac, use File, then Add to Dock.",
+      "The app then opens in its own window and works offline.",
+    ]],
+  ].sort((a, b) => (a[0] === plat ? -1 : b[0] === plat ? 1 : 0));
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <button onClick={onToggle} className="kp-f kp-tap" aria-expanded={open}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8,
+          minHeight: 44, padding: "10px 14px", cursor: "pointer",
+          background: c.chip, border: "none", borderRadius: "var(--r-sm)",
+          textAlign: "left", color: c.ink, fontSize: "0.875rem", fontWeight: 600,
+          touchAction: "manipulation" }}>
+        <span style={{ flex: 1 }}>
+          {installed ? "Notifications and assumptions, and how to set them"
+            : "Install this app, and set it up"}
+        </span>
+        <span aria-hidden="true" style={{ color: c.faint,
+          transform: open ? "rotate(90deg)" : "none",
+          transition: "transform .25s var(--ease-emphasized)" }}>›</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: "16px 4px 4px",
+          animation: "kp-rise .28s both var(--ease-emphasized)" }}>
+          {installed ? (
+            <div style={{ fontSize: "0.8125rem", color: c.good, marginBottom: 16 }}>
+              This is the installed app, so the first part is already done.
+            </div>
+          ) : (
+            <div style={{ fontSize: "0.8125rem", color: c.dim, marginBottom: 16,
+              lineHeight: 1.6 }}>
+              Installing is worth the thirty seconds: it opens without the browser
+              bars, works offline, and on an iPhone it is the only way the daily
+              briefing can reach you at all.
+            </div>
+          )}
+
+          {!installed && blocks.map(([k, title, steps], i) => (
+            <Steps key={k} title={title} steps={steps} c={c} lead={i === 0 && k === plat} />
+          ))}
+
+          <Steps title="Turning on the daily briefing" c={c} steps={[
+            "Install the app first if you are on an iPhone. Nothing below works from a Safari tab.",
+            "In these settings, switch on Daily briefing and allow notifications when the phone asks.",
+            "Pick the time and the days you want it.",
+            "It is sent from the server, so it arrives whether the app is open, in the background or closed. Tapping it opens the briefing.",
+            "If you ever delete and reinstall the app, switch it on once more - the phone starts fresh and forgets.",
+          ]} />
+
+          <Steps title="Setting your own assumptions" c={c} steps={[
+            "Scroll to Tax assumptions in these settings.",
+            "Drag the sliders for Treasury bills, money market funds and bonds to the rates you actually pay.",
+            "The ladder recomputes as you drag, and every real return on the Edge tab uses your figures.",
+            "They stay on this device. The readings themselves are the same for everyone and cannot be edited.",
+          ]} />
+        </div>
+      )}
     </div>
   );
 }
@@ -832,7 +1094,13 @@ export default function KenyaPulse() {
   const [notePerm, setNotePerm] = useState(() =>
     typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [noteState, setNoteState] = useState({ state: "idle", msg: "" });
-  const [pushCap] = useState(pushCapability);
+  /* Not frozen at first mount. On iPhone the answer changes the moment the app
+     is opened from the home screen rather than a Safari tab, and a reader who
+     installs it and comes back should not still be told to install it. */
+  const [pushCap, setPushCap] = useState(pushCapability);
+  const [howTo, setHowTo] = useState(false);
+  const [plat] = useState(platformGuess);
+  const [installed, setInstalled] = useState(installedNow);
 
   useEffect(() => {
     const id = tab === "trends" ? trendKey
@@ -892,6 +1160,9 @@ export default function KenyaPulse() {
     } catch { /* private browsing; the app still works, it just forgets */ }
   }, [dark, cfg.theme, cfg.size]);
 
+  /* When the feed was last read, so a resume knows whether to ask again. */
+  const lastPull = useRef(0);
+
   const pull = async (silent) => {
     setSync({ state: "busy", msg: "Fetching…" });
     try {
@@ -899,6 +1170,7 @@ export default function KenyaPulse() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       const merged = mergeFeed(SEED, j);
+      lastPull.current = Date.now();
       setData(merged); store.set("kp.data", merged);
       setSync({ state: "ok", msg: `Synced ${j.asOf || "now"}` });
       return merged;
@@ -913,7 +1185,25 @@ export default function KenyaPulse() {
     /* eslint-disable-next-line */
   }, []);
 
-  const inds = useMemo(() => data.indicators.map(i => ({ ...i, state: stateOf(i) })), [data]);
+  /* An installed app is rarely closed, it is put down and picked up. Fetching
+     only on mount meant a phone that never quits the app could show a week-old
+     feed indefinitely. Coming back to it after half an hour asks again. */
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.addEventListener) return;
+    const onShow = () => {
+      if (document.hidden || !cfg.autoSync) return;
+      if (Date.now() - lastPull.current < 30 * 60 * 1000) return;
+      lastPull.current = Date.now();
+      pull(true);
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+    /* eslint-disable-next-line */
+  }, [cfg.autoSync]);
+
+  const inds = useMemo(
+    () => data.indicators.map(i => ({ ...i, hist: levels(i.hist), state: stateOf(i) })),
+    [data]);
 
   /* the ladder recomputes live when tax assumptions change */
   const ladder = useMemo(() => {
@@ -982,6 +1272,51 @@ export default function KenyaPulse() {
   /* A change of time or days is only worth a round trip once the user has
      stopped fiddling with the control. */
   const noteSync = useRef(null);
+  /* Where a press on the settings veil began. A tap that starts inside the
+     sheet and drifts onto the veil is a drag, not a dismissal. */
+  const veilDown = useRef(false);
+
+  /* Two things go stale while the app is closed: whether push is possible at
+     all, and whether the subscription still exists. A delete and reinstall
+     clears the browser's subscription but not the remembered switch, so the
+     app would promise a briefing that nothing was going to send. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let live = true;
+    const recheck = async () => {
+      if (!live) return;
+      setPushCap(pushCapability());
+      setInstalled(installedNow());
+      if (!cfg.notifyOn) return;
+      if (await pushAlive()) return;
+      /* The switch says on and the device holds nothing. Put it back rather
+         than reporting a schedule that does not exist. */
+      const r = await pushSubscribe({ time: cfg.notifyTime, days: cfg.notifyDays });
+      if (!live) return;
+      if (!r.ok) {
+        set("notifyOn", false);
+        setNoteState({ state: "err",
+          msg: "The daily briefing stopped working on this device - most likely the app was reinstalled. Switch it back on to set it up again." });
+      }
+    };
+    recheck();
+    const onShow = () => { if (!document.hidden) recheck(); };
+    document.addEventListener && document.addEventListener("visibilitychange", onShow);
+    return () => {
+      live = false;
+      document.removeEventListener && document.removeEventListener("visibilitychange", onShow);
+    };
+    /* eslint-disable-next-line */
+  }, []);
+
+  /* Escape closes the sheet. Without it the only way out is the button, which
+     is a keyboard dead end on a dialog. */
+  useEffect(() => {
+    if (!openSettings || typeof window === "undefined") return;
+    const onKey = e => { if (e.key === "Escape") setOpenSettings(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openSettings]);
   useEffect(() => {
     if (!cfg.notifyOn) return;
     clearTimeout(noteSync.current);
@@ -1136,21 +1471,34 @@ export default function KenyaPulse() {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 0.5, marginTop: 16, height: 14,
-              alignItems: "center" }}>
+            {/* One mark per indicator, tall for stress, short for steady. The mark
+                is 14px at most, but the button around it is 44px so a finger can
+                land on it; the marks stay where they were drawn. Each carries a
+                name, because a strip of 33 unlabelled buttons is unusable with a
+                screen reader. */}
+            <div role="group" aria-label="All indicators at a glance"
+              style={{ display: "flex", gap: 0.5, marginTop: 2, height: 44,
+                alignItems: "center" }}>
               {inds.map((i, n) => (
-                <button key={i.id} title={`${i.label} - ${i.state}`} className="kp-f"
+                <button key={i.id} type="button" className="kp-f"
+                  title={`${i.label} - ${i.state}`}
+                  aria-label={`${i.label}, ${STATE_WORD[i.state] || i.state}`}
                   onClick={() => { setTab("pulse"); setExpanded(i.id); }}
                   style={{ flex: 1, border: "none", padding: 0, cursor: "pointer",
+                    background: "none", height: "100%", minWidth: 0,
+                    display: "flex", alignItems: "center",
+                    touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}>
+                  <span aria-hidden="true" style={{ display: "block", width: "100%",
                     borderRadius: 4,
                     height: i.state === "stress" ? 14 : i.state === "good" ? 9 : 4,
                     background: i.state === "stress" ? c.bad
                       : i.state === "good" ? c.good : c.line,
                     opacity: i.state === "steady" ? 1 : .82,
                     animation: `kp-rise .45s ${n * 0.012}s both var(--ease-emphasized)` }} />
+                </button>
               ))}
             </div>
-            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 8, lineHeight: 1.45 }}>
+            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 2, lineHeight: 1.45 }}>
               {stressed.length
                 ? <>{stressed.length} under pressure
                   {offRange.length > 0 && `, ${offRange.length} off range`}</>
@@ -1165,8 +1513,9 @@ export default function KenyaPulse() {
           {TABS.map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)} className="kp-f kp-tap"
               role="tab" aria-selected={tab === k}
-              style={{ flex: 1, minWidth: 0, padding: "7px 2px",
+              style={{ flex: 1, minWidth: 0, padding: "7px 2px", minHeight: 44,
                 border: "none", borderRadius: "var(--r-xs)", cursor: "pointer",
+                touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
                 background: tab === k ? c.segOn : "transparent",
                 ...T.labelLg,
                 letterSpacing: tiny ? "-.02em" : "-.01em",
@@ -1244,9 +1593,20 @@ export default function KenyaPulse() {
                           <span style={{ display: "block", fontWeight: 600, fontSize: "1rem",
                             letterSpacing: "-.015em" }}>{fmt(i.value, i.unit)}</span>
                           {i.prior != null && (
-                            <span style={{ fontSize: "0.75rem", color: col }}>
-                              {i.value > i.prior ? "+" : ""}{fmt(i.value - i.prior, "")}
-                            </span>
+                            <>
+                              <span style={{ fontSize: "0.75rem", color: col }}>
+                                {i.value > i.prior ? "+" : ""}{fmt(i.value - i.prior, "")}
+                              </span>
+                              {/* A number with no stated basis is a riddle. The line
+                                  beside it spans the whole history; this figure spans
+                                  one step of it, and they are rarely the same length. */}
+                              {i.priorLabel && !tiny && (
+                                <span style={{ display: "block", fontSize: "0.6875rem",
+                                  color: c.faint, whiteSpace: "nowrap" }}>
+                                  vs {i.priorLabel}
+                                </span>
+                              )}
+                            </>
                           )}
                         </span>
                         <span aria-hidden="true" style={{ color: c.faint, fontSize: "0.875rem",
@@ -1265,6 +1625,11 @@ export default function KenyaPulse() {
                             </div>
                           )}
                           <div style={{ marginBottom: 12, color: c.ink }}>{i.note}</div>
+                          {/* The one place with room to say plainly what the row and
+                              the line each measure, and what the colour means. */}
+                          <div style={{ marginBottom: 12, color: c.dim }}>
+                            {changeSentence(i)}
+                          </div>
                           <div style={{ display: "flex", gap: 12, flexWrap: "wrap",
                             fontSize: "0.875rem", color: c.faint }}>
                             <span>{i.src}</span>
@@ -1274,8 +1639,10 @@ export default function KenyaPulse() {
                           )}
                           <button onClick={() => share(i.label, linkTo("pulse", i.id))}
                             className="kp-f kp-tap"
-                            style={{ marginTop: 12, padding: 0, border: "none",
-                              background: "none", color: c.cool, cursor: "pointer",
+                            style={{ marginTop: 4, padding: "12px 0", minHeight: 44, border: "none",
+                              background: "none", textAlign: "left",
+                              touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
+                              color: c.cool, cursor: "pointer",
                               fontSize: "0.875rem", fontWeight: 600 }}>
                             {copied ? "Link copied" : "Share"}
                           </button>
@@ -1290,6 +1657,19 @@ export default function KenyaPulse() {
                 })}
               </Section>
             ))}
+
+            {/* Said once, at the bottom, rather than on every row: the line and
+                the colour answer different questions, and a reader who assumes
+                they answer the same one will misread half the list. */}
+            <div style={{ fontSize: "0.75rem", color: c.faint, lineHeight: 1.5,
+              padding: "0 4px", marginTop: 4 }}>
+              The line shows the levels a figure has taken, so a rate that sits
+              still adds no new point to it. The number beneath each value is the
+              change since the last reading, which is why a long line can sit above
+              a change of zero. Colour is not direction: green means the move helps,
+              red means it hurts. Inflation falling is a line going down and a green
+              figure at the same time. Tap a row for the full sentence.
+            </div>
           </>}
 
           {/* ================= EDGE ================= */}
@@ -1511,7 +1891,8 @@ export default function KenyaPulse() {
                     {Object.entries(ANNUAL_META).map(([k, m]) => (
                       <button key={k} onClick={() => setTrendKey(k)} className="kp-f kp-tap"
                         style={{ padding: narrow ? "7px 10px" : "7px 12px", borderRadius: "var(--r-sm)",
-                          whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0,
+                          minHeight: 44, whiteSpace: "nowrap", cursor: "pointer", flexShrink: 0,
+                          touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
                           border: `1px solid ${trendKey === k ? c.good : c.line}`,
                           background: trendKey === k ? c.good : "transparent",
                           color: trendKey === k ? "#fff" : c.dim,
@@ -1541,7 +1922,9 @@ export default function KenyaPulse() {
                 <Bars years={YEARS} values={vals} c={c} unit={u} narrow={narrow} />
                 <button onClick={() => share(meta.label, linkTo("trends", trendKey))}
                   className="kp-f kp-tap"
-                  style={{ marginTop: 12, padding: 0, border: "none", background: "none",
+                  style={{ marginTop: 4, padding: "12px 0", minHeight: 44, border: "none",
+                    background: "none", textAlign: "left",
+                    touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
                     color: c.cool, cursor: "pointer", fontSize: "0.875rem", fontWeight: 600 }}>
                   {copied ? "Link copied" : "Share"}
                 </button>
@@ -1794,11 +2177,20 @@ export default function KenyaPulse() {
 
       {/* ================= SETTINGS ================= */}
       {openSettings && (
-        <div onClick={() => setOpenSettings(false)} role="dialog" aria-modal="true"
+        <div
+          /* Safari does not reliably dispatch click on a bare div, so dismissal
+             rides on pointer events. Requiring the press to both start and end
+             on the veil keeps a drag out of the sheet from closing it. */
+          onPointerDown={e => { veilDown.current = e.target === e.currentTarget; }}
+          onPointerUp={e => {
+            if (veilDown.current && e.target === e.currentTarget) setOpenSettings(false);
+            veilDown.current = false;
+          }}
           style={{ position: "fixed", inset: 0, background: "color-mix(in srgb, var(--md-on-surface) 40%, transparent)", zIndex: 50,
             display: "flex", alignItems: "flex-end", justifyContent: "center",
+            cursor: "pointer", touchAction: "manipulation",
             animation: "kp-veil .28s both" }} className="kp-veil">
-          <div onClick={e => e.stopPropagation()}
+          <div role="dialog" aria-modal="true" aria-label="Settings"
             style={{ background: c.bg, width: "100%", maxWidth: 720, maxHeight: "90vh",
               overflowY: "auto", borderRadius: "var(--r-xl) var(--r-xl) 0 0",
               padding: narrow ? "18px 12px 30px" : "20px 16px 34px",
@@ -1813,6 +2205,11 @@ export default function KenyaPulse() {
               <button onClick={() => setOpenSettings(false)} className="kp-f kp-tap"
                 style={S.icon} aria-label="Close"><CloseGlyph /></button>
             </div>
+
+            {/* First thing in the sheet, because the people who need it are the
+                ones who have not got the app working yet. */}
+            <HowTo c={c} plat={plat} installed={installed}
+              open={howTo} onToggle={() => setHowTo(v => !v)} />
 
             <Row label="Theme" c={c}>
               <Seg value={cfg.theme} onChange={v => set("theme", v)} c={c}
@@ -1864,7 +2261,8 @@ export default function KenyaPulse() {
                     <Row label="Time of day" c={c}>
                       <input type="time" value={cfg.notifyTime}
                         onChange={e => set("notifyTime", e.target.value || "08:00")}
-                        style={{ padding: "10px 12px", borderRadius: "var(--r-sm)",
+                        style={{ padding: "10px 12px", minHeight: 44,
+                          borderRadius: "var(--r-sm)",
                           border: `1px solid ${c.line}`, background: c.card,
                           color: c.ink, fontSize: "0.875rem" }} />
                     </Row>
@@ -1879,7 +2277,7 @@ export default function KenyaPulse() {
                                 ? cfg.notifyDays.filter(x => x !== d)
                                 : [...(cfg.notifyDays || []), d])}
                               style={{ padding: "8px 12px", borderRadius: "var(--r-sm)", fontSize: "0.75rem",
-                                cursor: "pointer", minHeight: 40,
+                                cursor: "pointer", minHeight: 44, touchAction: "manipulation",
                                 border: `1px solid ${on ? c.good : c.line}`,
                                 background: on ? c.good : "transparent",
                                 color: on ? "#fff" : c.dim, fontWeight: on ? 600 : 500,
@@ -1905,17 +2303,20 @@ export default function KenyaPulse() {
               hint="Tax practices say 15%. One retail source claims bills are exempt for individuals - set what your own advice says." c={c}>
               <input type="range" min="0" max="30" step="1" value={cfg.taxBill}
                 onChange={e => set("taxBill", +e.target.value)}
-                style={{ width: "100%", accentColor: c.good }} />
+                style={{ width: "100%", height: 44, accentColor: c.good,
+                  touchAction: "manipulation" }} />
             </Row>
             <Row label={`Money market funds · ${cfg.taxMmf}%`} c={c}>
               <input type="range" min="0" max="30" step="1" value={cfg.taxMmf}
                 onChange={e => set("taxMmf", +e.target.value)}
-                style={{ width: "100%", accentColor: c.good }} />
+                style={{ width: "100%", height: 44, accentColor: c.good,
+                  touchAction: "manipulation" }} />
             </Row>
             <Row label={`Bonds of ten years or more · ${cfg.taxBond}%`} c={c}>
               <input type="range" min="0" max="30" step="1" value={cfg.taxBond}
                 onChange={e => set("taxBond", +e.target.value)}
-                style={{ width: "100%", accentColor: c.good }} />
+                style={{ width: "100%", height: 44, accentColor: c.good,
+                  touchAction: "manipulation" }} />
             </Row>
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Display</div>
@@ -1933,7 +2334,8 @@ export default function KenyaPulse() {
                     <button key={i.id} className="kp-f kp-tap"
                       onClick={() => set("pinned", on ? cfg.pinned.filter(x => x !== i.id)
                         : cfg.pinned.length < 4 ? [...cfg.pinned, i.id] : cfg.pinned)}
-                      style={{ padding: "6px 11px", borderRadius: "var(--r-sm)", fontSize: "0.75rem", cursor: "pointer",
+                      style={{ padding: "6px 11px", minHeight: 44, borderRadius: "var(--r-sm)",
+                        fontSize: "0.75rem", cursor: "pointer", touchAction: "manipulation",
                         border: `1px solid ${on ? c.good : c.line}`,
                         background: on ? c.good : "transparent", color: on ? "#fff" : c.dim,
                         fontWeight: on ? 600 : 500, transition: "background .18s, color .18s" }}>
@@ -1997,7 +2399,9 @@ function Seg({ value, onChange, opts, c }) {
     <div style={{ display: "flex", background: c.seg, borderRadius: "var(--r-sm)", padding: 0 }}>
       {opts.map(([v, l]) => (
         <button key={v} onClick={() => onChange(v)} className="kp-f"
-          style={{ flex: 1, padding: "8px 4px", border: "none", borderRadius: "var(--r-xs)", cursor: "pointer",
+          style={{ flex: 1, padding: "8px 4px", minHeight: 44, border: "none",
+            borderRadius: "var(--r-xs)", cursor: "pointer",
+            touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
             background: value === v ? c.segOn : "transparent",
             color: value === v ? c.ink : c.dim, fontWeight: 600, fontSize: "0.875rem",
             boxShadow: value === v ? c.segShadow : "none",
@@ -2050,20 +2454,35 @@ function mergeFeed(seed, feed) {
      nobody added it here is how a feed and an app drift apart. */
   const known = new Set(seed.indicators.map(i => i.id));
   const extra = feed.signals.filter(s => !known.has(s.id) && typeof s.value === "number")
-    .map(s => ({ id: s.id, label: s.label, group: s.group || "Other", unit: s.unit || "",
-      dir: s.dir ?? 0, value: s.value, prior: s.prior ?? s.value, priorLabel: "last reading",
-      asOf: feed.asOf, src: s.source || "feed",
-      hist: Array.isArray(s.hist) && s.hist.length > 2 ? s.hist : [s.value],
-      note: "Added by the feed." }));
+    .map(s => {
+      const hist = Array.isArray(s.hist) && s.hist.length > 2 ? s.hist : [s.value];
+      const prior = typeof s.prior === "number" ? s.prior
+        : hist.length > 1 ? hist[hist.length - 2] : null;
+      return { id: s.id, label: s.label, group: s.group || "Other", unit: s.unit || "",
+        dir: s.dir ?? 0, value: s.value, prior,
+        priorLabel: prior == null ? null : "last reading",
+        asOf: feed.asOf, src: s.source || "feed", hist,
+        note: "Added by the feed." };
+    });
 
   const indicators = seed.indicators.map(i => {
     const s = live[i.id];
     if (!s || typeof s.value !== "number") return i;
-    const changed = s.prior != null && Math.abs(s.value - s.prior) > 1e-9;
+    /* The change in the row and the line beside it have to be the same fact.
+       Taking the live history while keeping the seed's prior is how a row came
+       to report a fall of 0.25 with a dead flat line next to it: the number was
+       measured against a figure hard-coded here months ago, and the line was
+       not. So the prior is read off the end of whichever history is drawn. The
+       collector already sets prior to the previous reading, so on live data
+       this is the same number it sent - just derived rather than trusted. */
+    const hist = Array.isArray(s.hist) && s.hist.length > 2
+      ? s.hist : [...i.hist.slice(-19), s.value];
+    const prior = typeof s.prior === "number" ? s.prior
+      : hist.length > 1 ? hist[hist.length - 2] : null;
     return { ...i, value: s.value,
-      prior: changed ? s.prior : i.prior,
-      priorLabel: changed ? "last reading" : i.priorLabel,
-      hist: Array.isArray(s.hist) && s.hist.length > 2 ? s.hist : [...i.hist.slice(-19), s.value],
+      prior,
+      priorLabel: prior == null ? null : "last reading",
+      hist,
       asOf: feedDate(i.id, feed, i.asOf),
       src: s.source === "cbk" ? "CBK" : s.source === "nse" ? "NSE"
         : s.source === "manual" ? "Typed" : s.source || i.src };

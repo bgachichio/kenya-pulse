@@ -177,7 +177,7 @@ npx vercel --prod
 
 ## Tests
 
-Fourteen suites, 386 assertions. Most run against the component mounted under
+Eighteen suites, 534 assertions. Most run against the component mounted under
 Node with no browser at all; the push work is checked three ways, because a
 notification that fails silently is worse than none, and the design tokens are
 read back out of a real browser rather than trusted.
@@ -189,7 +189,9 @@ node verify.js && node notify.js          # …and the rest
 node sw_test.mjs                          # the built worker, mocked globals
 node push_browser.mjs                     # real Chromium, real push delivery
 node visual-check.mjs                     # computed styles, light, dark, xlarge
+node touch-check.mjs                      # a real finger, a real mouse, a keyboard
 ../.venv-push/bin/python push_test.py     # the server, timezones and all
+python3 collector_test.py                 # the collector, no network needed
 ```
 
 ## Rolling back

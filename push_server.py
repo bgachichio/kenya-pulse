@@ -39,6 +39,11 @@ DATA = Path(os.environ.get("KP_DATA_JSON", HERE / "public" / "data.json"))
 # A briefing three hours late is still breakfast reading. One twelve hours late
 # is a phone buzzing at bedtime about this morning, so the send is dropped.
 GRACE = timedelta(hours=3)
+
+# The most briefings one device can be sent in a day. One is the schedule; the
+# second exists so that changing the time after the day's briefing has gone
+# still does something, which is what a reader who just set a new time expects.
+MAX_PER_DAY = 2
 MAX_SUBS = 5000
 
 # The endpoint is a URL this server will POST to, supplied by whoever calls
@@ -179,8 +184,16 @@ def due_reason(sub: dict, now_utc: datetime) -> str | None:
     late = local - target
     if late > GRACE:
         return f"too late — {target:%H:%M} passed {int(late.total_seconds() // 60)} min ago, past the {int(GRACE.total_seconds() // 3600)}h window"
-    if sub.get("lastSent") == local.date().isoformat():
-        return f"already sent today ({local.date()})"
+    today = local.date().isoformat()
+    # Two counters, not one. lastSent stops the five-minute cron sending the
+    # same briefing twice; sentCount stops a reader who keeps moving the time
+    # from collecting a briefing on every move. Changing the schedule clears
+    # the first and not the second, so a new time still fires today, and the
+    # day is still bounded.
+    if sub.get("lastSent") == today:
+        return f"already sent today ({today})"
+    if sub.get("sentDate") == today and int(sub.get("sentCount") or 0) >= MAX_PER_DAY:
+        return f"{MAX_PER_DAY} already sent today ({today}); the next is tomorrow"
     return None
 
 
@@ -224,7 +237,11 @@ def send_due(now_utc: datetime | None = None, sender=None, force: bool = False) 
                         ttl=int(GRACE.total_seconds()),
                     )
                 if not force:
-                    sub["lastSent"] = local.date().isoformat()
+                    today = local.date().isoformat()
+                    sub["lastSent"] = today
+                    sub["sentCount"] = (int(sub.get("sentCount") or 0)
+                                        if sub.get("sentDate") == today else 0) + 1
+                    sub["sentDate"] = today
                 sub.pop("failures", None)
                 tally["sent"] += 1
             except WebPushException as e:
@@ -306,10 +323,22 @@ def build_app():
             if endpoint not in subs and len(subs) >= MAX_SUBS:
                 raise HTTPException(503, "at capacity")
             prior = subs.get(endpoint, {})
+            # A changed time or day set is a new intention, so today's send is
+            # back on the table. Keeping lastSent across a change is why moving
+            # the time to a moment still ahead produced nothing at all: the
+            # server had already marked the day done under the old time. An
+            # unchanged schedule keeps it, so the app re-sending the same
+            # settings on every launch cannot cause a second briefing.
+            changed = (prior.get("time") != s.time
+                       or sorted(prior.get("days") or []) != days
+                       or prior.get("tz") != tz)
             subs[endpoint] = {
                 "subscription": s.subscription, "time": s.time, "days": days, "tz": tz,
                 "added": prior.get("added") or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "lastSent": prior.get("lastSent"),
+                "lastSent": None if changed else prior.get("lastSent"),
+                # the day's tally survives the change; that is what bounds it
+                "sentDate": prior.get("sentDate"),
+                "sentCount": prior.get("sentCount"),
             }
             _write(subs)
         return {"ok": True}
@@ -414,6 +443,9 @@ def main() -> int:
             print(f"    wants      {sub.get('time')} on days {sub.get('days')} ({sub.get('tz')})")
             print(f"    its clock  {stamp}")
             print(f"    last sent  {sub.get('lastSent') or 'never'}")
+            if sub.get("sentDate"):
+                print(f"    today      {sub.get('sentCount') or 0} of {MAX_PER_DAY} "
+                      f"sent on {sub.get('sentDate')}")
             print(f"    status     {'DUE NOW' if why is None else why}")
         return 0
     if a.forget:
@@ -429,7 +461,8 @@ def main() -> int:
         subs = _read()
         print(f"{len(subs)} subscription(s)")
         for s in subs.values():
-            print(f"  {s.get('time')} {s.get('days')} {s.get('tz')} last={s.get('lastSent')}")
+            print(f"  {s.get('time')} {s.get('days')} {s.get('tz')} "
+                  f"last={s.get('lastSent')} today={s.get('sentCount') or 0}")
         return 0
     if a.test_send:
         print(json.dumps(send_due(force=True)))

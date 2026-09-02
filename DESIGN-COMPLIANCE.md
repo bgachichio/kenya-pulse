@@ -32,7 +32,9 @@ computed styles back in light, dark and at `xlarge`.
 - [x] Cards at 20px (`--r-lg`). Sheets at 28px (`--r-xl`)
 - [x] Spacing values from the 4/8 scale only
 - [x] No element carries both a border and a shadow
-- [x] Single column on mobile. Touch targets ≥ 44px
+- [x] Single column on mobile. Touch targets ≥ 44px in height, measured in a
+      real browser on a phone profile, sheet included. One width exception,
+      below
 
 **Charts**
 
@@ -63,7 +65,7 @@ computed styles back in light, dark and at `xlarge`.
 
 The app predates design.md v1.1 and is one 2,000-line file with no build-time
 CSS. Moving it onto Tailwind and shadcn means rewriting every element and
-re-authoring 386 assertions against new markup, on an app that is live and
+re-authoring 534 assertions against new markup, on an app that is live and
 carries a daily notification people rely on. The gain is conformance; the cost
 is a rewrite and a real chance of regression.
 
@@ -73,7 +75,16 @@ one easing — is now in place, declared in `index.css` and consumed through
 `var()`. A future move to Tailwind reads those same custom properties, so this
 is a step toward the rule rather than away from it.
 
-**2. Green appears far more than three times per screen.**
+**2. The vitals strip cannot give each mark 44px of width.**
+
+The strip on the Pulse card draws one mark per indicator across the screen. At
+33 indicators on a 360px phone, 44px each would need 1,452px. Every mark is a
+44px *tall* target and carries its own name for a screen reader, which is what
+the rule is actually protecting; the width is set by how many indicators there
+are. Nothing in the strip is the only way to reach anything - every mark is a
+shortcut to a row in the list below it.
+
+**3. Green appears far more than three times per screen.**
 
 The rule reserves `--md-primary` for the one primary action and the active
 state. Kenya Pulse is a dashboard where **colour is the data**: a rung that

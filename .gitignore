@@ -38,6 +38,8 @@ tests/s.js
 tests/t.js
 tests/e2e.mjs.js
 tests/ui.mjs.js
+tests/interact.mjs.js
+tests/coherence.mjs.js
 tests/v4.mjs.js
 encrypted.data
 

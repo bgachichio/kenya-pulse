@@ -9,6 +9,7 @@ the three signal layers, and writes one JSON the app renders.
     python3 kenya_pulse.py --fast     rates, markets, currency only, ~15 seconds
     python3 kenya_pulse.py --dry      print, write nothing, send nothing
     python3 kenya_pulse.py --health   source reachability, no writes
+    python3 kenya_pulse.py --sources  what each source actually parsed, no writes
     python3 kenya_pulse.py --remind   Telegram nudge listing what needs typing
     python3 kenya_pulse.py --remind   nudge about figures that need typing
     python3 kenya_pulse.py --compact  roll the log up
@@ -47,6 +48,7 @@ REMIND  = "--remind"  in sys.argv
 REMIND  = "--remind"  in sys.argv
 DRY     = "--dry"     in sys.argv
 HEALTH  = "--health"  in sys.argv
+SOURCES = "--sources" in sys.argv
 COMPACT = "--compact" in sys.argv
 
 TG_TOKEN = os.environ.get("KP_TG_TOKEN", "")
@@ -606,7 +608,9 @@ MANUAL_CADENCE = {
     # inflation is scraped from CBK and mmf_* from Serrari, so neither appears here
     "pmi": 45, "npl": 45,
     "reserves": 21, "cover": 21,
-    "tbill182": 21, "tbill364": 45, "bond10": 45, "infra": 45,
+    # The 182-day auctions weekly. Letting a typed one stand for three weeks
+    # meant three missed auctions could pass without the app saying a word.
+    "tbill182": 10, "tbill364": 45, "bond10": 45, "infra": 45,
     "debt": 60, "debt_gdp": 60, "gdp": 130, "cab": 130, "debtserv": 400,
 }
 
@@ -1171,6 +1175,26 @@ def read_log(limit=400):
     return rows[-limit:]
 
 
+def distinct_levels(seq):
+    """Collapse runs of identical readings.
+
+    History is kept one row per collection run, so how often the collector runs
+    decides how many points a sparkline has. At twice a month, twenty-four
+    points of inflation was two years of monthly prints. Run it daily and the
+    same twenty-four points become three and a half weeks of a figure that only
+    moves monthly - a dead flat line about a series that moves all the time.
+
+    Collapsing repeats makes the line mean "the levels this has taken" rather
+    than "the times we happened to look", which is both more useful and immune
+    to the schedule.
+    """
+    out = []
+    for v in seq:
+        if not out or abs(out[-1] - v) > 1e-9:
+            out.append(v)
+    return out
+
+
 def score(values, prov, hist, carried):
     stale = {c["id"] for c in carried if c["stale"]}
     ages = {c["id"]: c["ageDays"] for c in carried}
@@ -1200,7 +1224,11 @@ def score(values, prov, hist, carried):
                     "source": prov.get(ind, "?"), "stale": ind in stale,
                     "ageDays": ages.get(ind, 0),
                     "anomaly": bool(z is not None and abs(z) >= Z_ALERT),
-                    "hist": [round(x, 4) for x in past[-24:]] + [round(v, 4)]})
+                    # prior stays the previous *run*, so "unchanged" is still
+                    # sayable; the line shows the levels, so it stays readable
+                    # however often this runs.
+                    "hist": [round(x, 4)
+                             for x in distinct_levels(past + [v])[-24:]]})
     return out
 
 
@@ -1322,6 +1350,63 @@ def remind():
     return len(overdue) + len(undated)
 
 
+def sources_report():
+    """What every source actually returned, not merely whether it answered.
+
+    --health asks whether a site is up. That is the wrong question: a site can
+    answer perfectly while its markup has moved and the scraper quietly returns
+    nothing, and the app then carries the last good figure forward for weeks
+    wearing a fresh date. This runs the real extractors and prints what came
+    back, so a silently broken parse is visible in one pass.
+    """
+    by_source, _ = gather()
+    man_vals, _ = src_manual()
+    sheet_vals, _, _ = src_sheet()
+    man_vals.update(sheet_vals)
+    by_source["manual"] = man_vals
+
+    print(f"\n  {'SOURCE':12} {'PARSED':>6}  KEYS")
+    print("  " + "-" * 68)
+    for name in sorted(k for k in by_source if not k.startswith("_")):
+        got = {k: v for k, v in by_source[name].items()
+               if not k.startswith("_") and isinstance(v, (int, float))}
+        keys = ", ".join(f"{k}={v:g}" for k, v in sorted(got.items())[:6])
+        if len(got) > 6:
+            keys += f", +{len(got) - 6} more"
+        flag = "" if got else "   <- returned nothing"
+        print(f"  {name:12} {len(got):>6}  {keys or '(none)'}{flag}")
+
+    values, prov, _ = reconcile(by_source)
+    print(f"\n  {'INDICATOR':12} {'VALUE':>12}  {'FROM':10} EXPECTED")
+    print("  " + "-" * 68)
+    missing, offlist = [], []
+    for ind, (label, group, unit, direction, freq) in REGISTER.items():
+        want = PRECEDENCE.get(ind, ["any"])
+        got_from = prov.get(ind)
+        v = values.get(ind)
+        if v is None:
+            missing.append(ind)
+            print(f"  {ind:12} {'-':>12}  {'-':10} {'/'.join(want)}   <- MISSING")
+            continue
+        # A figure that arrived from the fallback rather than the live source
+        # is the quiet failure: it is present, it is just not fresh.
+        live_wanted = [w for w in want if w != "manual"]
+        stale_src = bool(live_wanted) and got_from not in live_wanted
+        if stale_src:
+            offlist.append(ind)
+        print(f"  {ind:12} {v:>12g}  {got_from or '?':10} {'/'.join(want)}"
+              f"{'   <- fell back' if stale_src else ''}")
+
+    print(f"\n  {len(values)} of {len(REGISTER)} indicators have a figure.")
+    if missing:
+        print(f"  missing entirely: {', '.join(missing)}")
+    if offlist:
+        print(f"  came from a fallback, not their live source: {', '.join(offlist)}")
+    if not missing and not offlist:
+        print("  every indicator came from the source it is supposed to come from.")
+    return 0 if not missing else 1
+
+
 def health_report():
     checks = [
         ("CBK key rates",  "https://www.centralbank.go.ke/", False),
@@ -1432,8 +1517,8 @@ def main():
         compact_log(); return
     if HEALTH:
         health_report(); return
-    if REMIND:
-        remind(); return
+    if SOURCES:
+        sources_report(); return
 
     t0 = time.time()
     log(f"Kenya Pulse{' (fast)' if FAST else ''}")

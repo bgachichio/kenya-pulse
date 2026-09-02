@@ -178,16 +178,49 @@ ok("a pass at the new hour sends once", len(fired) == 1, str(len(fired)))
 P.send_due(now_utc=at("2026-08-26T11:30:00"), sender=lambda s, p: fired.append(s))
 ok("and not again that day", len(fired) == 1, str(len(fired)))
 
-# Moving the time after the day's briefing has gone must not buy a second one.
+# Re-sending the *same* schedule must never buy a second briefing. The app
+# posts its settings again on every launch, so this is the common case.
+client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
+                                "time": "14:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
+store = json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text())
+ok("re-posting an unchanged schedule keeps the day's record",
+   store[CHROME]["lastSent"] == "2026-08-26", str(store[CHROME]["lastSent"]))
+P.send_due(now_utc=at("2026-08-26T11:45:00"), sender=lambda s, p: fired.append(s))
+ok("so the app re-registering on launch sends nothing", len(fired) == 1, str(len(fired)))
+
+# Moving the time to a moment still ahead SHOULD fire today. Silence here is
+# what makes a reader who has just set a new time think the feature is broken.
 client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
                                 "time": "17:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
 store = json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text())
-ok("a later time keeps the day's record of having sent",
-   store[CHROME]["lastSent"] == "2026-08-26", str(store[CHROME]["lastSent"]))
+ok("changing the time clears the day's record",
+   store[CHROME]["lastSent"] is None, str(store[CHROME]["lastSent"]))
+ok("but not the day's count", store[CHROME].get("sentCount") == 1,
+   str(store[CHROME].get("sentCount")))
+# 17:00 Nairobi is 14:00 UTC
+P.send_due(now_utc=at("2026-08-26T13:00:00"), sender=lambda s, p: fired.append(s))
+ok("nothing fires before the new time", len(fired) == 1, str(len(fired)))
 P.send_due(now_utc=at("2026-08-26T14:00:00"), sender=lambda s, p: fired.append(s))
-ok("so changing the time again does not re-send today", len(fired) == 1, str(len(fired)))
-ok("but it does fire at the new time tomorrow",
-   P.is_due(store[CHROME], at("2026-08-27T14:00:00")))
+ok("and the new time does fire today", len(fired) == 2, str(len(fired)))
+
+# ...but a reader who keeps moving it does not collect one per move.
+client.post("/subscribe", json={"subscription": {"endpoint": CHROME, "keys": {}},
+                                "time": "18:00", "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi"})
+store = json.loads(Path(os.environ["KP_PUSH_STORE"]).read_text())
+ok("a third change is refused, with a reason",
+   "already sent today" in (P.due_reason(store[CHROME], at("2026-08-26T15:05:00")) or ""),
+   str(P.due_reason(store[CHROME], at("2026-08-26T15:05:00"))))
+P.send_due(now_utc=at("2026-08-26T15:05:00"), sender=lambda s, p: fired.append(s))
+ok("so the day stops at two", len(fired) == 2, str(len(fired)))
+ok("and it fires at the new time tomorrow",
+   P.is_due(store[CHROME], at("2026-08-27T15:05:00")),
+   str(P.due_reason(store[CHROME], at("2026-08-27T15:05:00"))))
+
+# An old record written before sentCount existed must not break.
+legacy = {"subscription": {"endpoint": CHROME, "keys": {}}, "time": "08:00",
+          "days": [0, 1, 2, 3, 4, 5, 6], "tz": "Africa/Nairobi", "lastSent": None}
+ok("a record with no count is due", P.is_due(legacy, at("2026-08-27T05:00:00")),
+   str(P.due_reason(legacy, at("2026-08-27T05:00:00"))))
 
 client.post("/unsubscribe", json={"endpoint": CHROME})
 

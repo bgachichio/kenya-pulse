@@ -10,6 +10,9 @@ const babel = require('@babel/core'), fs = require('fs'), path = require('path')
 const SRC = process.env.KP_APP || path.resolve(__dirname, '../app/src/App.jsx');
 const DISK = {};
 let PERM = 'default', SUBSCRIBED = null, CALLS = [], UNSUB = 0, IOS = false, STANDALONE = false;
+/* Reinstall knobs: whether the worker is registered at all, whether it ever
+   becomes ready, and whether registering it succeeds. */
+let HAS_REG = true, READY_HANGS = false, REGISTER_FAILS = false, REGISTERED = 0;
 
 global.window = {
   localStorage: { getItem: k => k in DISK ? DISK[k] : null, setItem: (k, v) => { DISK[k] = String(v); }, removeItem: k => { delete DISK[k]; } },
@@ -30,6 +33,7 @@ setPushSupport(true);
 
 function resetPush() {
   SUBSCRIBED = null; CALLS = []; UNSUB = 0;
+  HAS_REG = true; READY_HANGS = false; REGISTER_FAILS = false; REGISTERED = 0;
 }
 
 const registration = {
@@ -53,7 +57,17 @@ Object.defineProperty(globalThis, 'navigator', {
     clipboard: { writeText: async () => {} },
     get userAgent() { return IOS ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari' : 'Mozilla/5.0 (Linux; Android 14) Chrome'; },
     get standalone() { return IOS ? STANDALONE : undefined; },
-    serviceWorker: { ready: Promise.resolve(registration), getRegistration: async () => registration },
+    serviceWorker: {
+      get ready() {
+        return READY_HANGS ? new Promise(() => {}) : Promise.resolve(registration);
+      },
+      getRegistration: async () => (HAS_REG ? registration : undefined),
+      register: async () => {
+        REGISTERED++;
+        if (REGISTER_FAILS) { const e = new Error('nope'); e.name = 'SecurityError'; throw e; }
+        HAS_REG = true; return registration;
+      },
+    },
   },
 });
 
@@ -75,7 +89,11 @@ global.fetch = async (url, init) => {
 
 fs.writeFileSync('notify.compiled.js', babel.transformSync(fs.readFileSync(SRC, 'utf8'), {
   presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }],
-    ['@babel/preset-react', { runtime: 'classic' }]], filename: 'k.jsx' }).code);
+    ['@babel/preset-react', { runtime: 'classic' }]], filename: 'k.jsx' }).code
+  /* internal helpers, reached only by the compiled copy this suite loads */
+  + '\nmodule.exports.workerReady = workerReady;'
+  + '\nmodule.exports.pushSubscribe = pushSubscribe;'
+  + '\nmodule.exports.pushAlive = pushAlive;\n');
 
 const React = require('react'), TR = require('react-test-renderer');
 function walk(n, f) { if (!n || typeof n !== 'object') return; f(n); (n.children || []).forEach(c => walk(c, f)); }
@@ -221,6 +239,71 @@ const toggleNotify = async (r) => {
     (src.match(/new Notification\(|showNotification\(/g) || []).join(','));
   ok('no daily bookkeeping left on the device', !src.includes('kp.notified'));
   ok('the worker owns it instead', fs.existsSync(__dirname + '/../app/src/sw.js'));
+
+  console.log('\n── DELETE THE APP, INSTALL IT AGAIN');
+  /* The reported fault: after deleting and reinstalling, the briefing could
+     not be set at all. Three separate ways that happens, each of which used to
+     end in a switch that did nothing or a spinner that never stopped. */
+  const { workerReady, pushSubscribe, pushAlive } = require('./notify.compiled.js');
+
+  resetPush();
+  HAS_REG = false;
+  let sub2 = await pushSubscribe({ time: '08:00', days: [1] });
+  ok('a fresh install with no worker registers one itself', REGISTERED === 1, String(REGISTERED));
+  ok('and the schedule goes through', sub2.ok === true, sub2.msg);
+
+  resetPush();
+  HAS_REG = false; REGISTER_FAILS = true;
+  sub2 = await pushSubscribe({ time: '08:00', days: [1] });
+  ok('a worker that will not install reports it', sub2.ok === false);
+  ok('and says so in words a reader can act on',
+    /would not install/.test(sub2.msg), sub2.msg);
+
+  resetPush();
+  READY_HANGS = true;
+  const t0 = Date.now();
+  let hung;
+  try { await workerReady(120); hung = 'resolved'; }
+  catch (e) { hung = e.message; }
+  ok('a worker that never starts gives up rather than hanging for ever',
+    /did not start/.test(hung), hung);
+  ok('and it gives up quickly', Date.now() - t0 < 3000, String(Date.now() - t0));
+
+  console.log('\n── A SUBSCRIPTION LEFT OVER FROM THE OLD INSTALL');
+  resetPush();
+  /* Signed with a key the server is no longer using. It looks healthy and
+     delivers nothing, which is the worst of both. */
+  SUBSCRIBED = {
+    endpoint: 'https://fcm.googleapis.com/fcm/send/STALEDEVICE',
+    options: { userVisibleOnly: true, applicationServerKey: new Uint8Array([1, 2, 3]) },
+    toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/STALEDEVICE', keys: {} }),
+    unsubscribe: async () => { UNSUB++; return true; },
+  };
+  const r2 = await pushSubscribe({ time: '08:00', days: [1] });
+  ok('the stale subscription is thrown away', UNSUB === 1, String(UNSUB));
+  ok('a new one is minted in its place',
+    SUBSCRIBED.endpoint.includes('TESTDEVICE'), SUBSCRIBED.endpoint);
+  ok('and it is the new one that reaches the server',
+    CALLS.some(c => c.url.endsWith('/push/subscribe')
+      && c.body.subscription.endpoint.includes('TESTDEVICE')));
+  ok('the whole thing succeeds', r2.ok === true, r2.msg);
+
+  resetPush();
+  /* the same key: nothing should be thrown away */
+  await pushSubscribe({ time: '08:00', days: [1] });
+  const kept = SUBSCRIBED;
+  UNSUB = 0;
+  await pushSubscribe({ time: '09:00', days: [1] });
+  ok('a subscription signed with the current key is kept', UNSUB === 0, String(UNSUB));
+  ok('and it is the same one', SUBSCRIBED === kept);
+
+  console.log('\n── THE DEVICE FORGOT, THE SETTING DID NOT');
+  resetPush();
+  ok('a device holding nothing reports nothing', (await pushAlive()) === false);
+  await pushSubscribe({ time: '08:00', days: [1] });
+  ok('and one holding a subscription reports it', (await pushAlive()) === true);
+  HAS_REG = false;
+  ok('a reinstall wipes it', (await pushAlive()) === false);
 
   console.log(`\n${'═'.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(50)}`);
   process.exit(fail ? 1 : 0);

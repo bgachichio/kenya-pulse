@@ -50,11 +50,34 @@ annual source, relabelled where the measure differs.
 
 ## A3 · Check every source
 
+Two checks, and the second is the one that matters.
+
 ```bash
 ssh $K $V "cd ~/kenya-pulse && python3 kenya_pulse.py --health"
 ```
 
 **You should see** `10 of 10 reachable`. Eight is enough to proceed.
+
+`--health` only asks whether a site answers. A site can answer perfectly while
+its markup has moved, in which case the scraper returns nothing, the last good
+figure is carried forward, and the app shows a stale rate wearing a fresh date.
+That is the failure nobody notices. So also run:
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && python3 kenya_pulse.py --sources"
+```
+
+**You should see** a row per source with the keys it actually parsed, then a row
+per indicator naming where its figure came from. What to look for:
+
+| In the output | What it means | What to do |
+|---|---|---|
+| `serrari bills   0  (none)  <- returned nothing` | the auction table moved | fix `src_serrari_bills`, or type the rate into the sheet |
+| `tbill182 ... <- fell back` | the live source failed, a typed figure is standing in | same |
+| `tbill182 ... <- MISSING` | no source and no typed figure | type one |
+| every indicator named against its live source | working | nothing |
+
+This is the command to run first when a rate looks frozen.
 
 ## A4 · Dry run — read the ladder before writing anything
 
@@ -76,7 +99,50 @@ curl -s https://gachichio.org/pulse/data.json | head -c 60; echo
 
 **You should see** ~40 seconds, then JSON beginning `{"asOf":"2026-`.
 
-## A6 · Rollback, tested not assumed
+## A6 · Put it on a schedule
+
+The collector had no documented schedule, which is why rates could sit
+unchanged for a fortnight: nothing was running. Two entries, because the
+figures move at different speeds and the cheap pass covers the fast ones.
+
+```bash
+ssh $K $V "crontab -l 2>/dev/null | grep -v kenya_pulse.py | {
+  cat
+  echo '17 4 * * *   cd ~/kenya-pulse && python3 kenya_pulse.py --fast >> ~/collect.log 2>&1'
+  echo '35 4 * * 1   cd ~/kenya-pulse && python3 kenya_pulse.py      >> ~/collect.log 2>&1'
+  echo '5  3 1 * *   cd ~/kenya-pulse && python3 kenya_pulse.py --compact >> ~/collect.log 2>&1'
+} | crontab -"
+```
+
+- **Daily at 04:17 UTC** (07:17 Nairobi), `--fast`: rates, markets and currency.
+  About 15 seconds. These are the figures that move daily.
+- **Mondays at 04:35 UTC**, the full sweep: adds the IMF and World Bank series
+  and the long history. About 3 minutes.
+- **First of the month**, `--compact`: rolls history older than two years into
+  gzipped archives.
+
+Odd minutes rather than the hour so this never lines up with anything else.
+
+**What it costs.** One history row is about 1.1 KB. Daily plus weekly is 417
+runs a year, so **436 KB a year**, and `--compact` archives anything past two
+years. `data.json` is 16 KB and is overwritten, not appended. Peak memory is
+one Python process for 15 seconds a day and 3 minutes a week. Nothing touches
+Supabase.
+
+**Why the chart does not get worse.** History is one row per run, so collecting
+more often used to mean a monthly figure drew twenty-four points covering three
+weeks - a flat line about a series that moves every month. The collector now
+stores the levels a figure has taken rather than the times it was looked at, so
+the sparklines read the same whatever the schedule.
+
+Check it took:
+
+```bash
+ssh $K $V "crontab -l | grep kenya_pulse"
+ssh $K $V "tail -5 ~/collect.log"
+```
+
+## A7 · Rollback, tested not assumed
 
 ```bash
 ssh $K $V "cd ~/kenya-pulse && cp public/data.json public/data.json.last"
