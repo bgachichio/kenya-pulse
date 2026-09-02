@@ -14,41 +14,41 @@ the Lenovo. About twenty minutes. Each step ends with **You should see**.
 
 ## 0 · Every session starts here
 
-`$V` and `$K` are shell variables, not settings. They live only in the terminal
-you typed them into, so a new tab, a reboot, or coming back tomorrow loses
-them — and **34 of the commands below use them**.
+`$V`, `$K`, `$SRC` and the `kp` helper are shell state, not settings. They live
+only in the terminal they were typed into, so a new tab, a reboot, or coming
+back tomorrow loses all of them — and **every command below uses at least one**.
 
-Run this once per terminal, before anything else:
+Run this once per terminal, before anything else. It writes the file the first
+time and reads it every time after:
 
 ```bash
-. ~/.kenya-pulse-env 2>/dev/null || {
-  cat > ~/.kenya-pulse-env <<'ENV'
+[ -s ~/.kenya-pulse-env ] || cat > ~/.kenya-pulse-env <<'ENV'
+# Everything a Kenya Pulse session needs. Sourced, never executed.
 V="bgkaranja@34.35.177.164"
 K="-i $HOME/.ssh/gcp_pulse"
+SRC="$HOME/kenya-pulse-src"
+
+# The collector runs as kpulse, from a fixed directory, with an environment file
+# sourced first. Retyping that is how it goes subtly wrong, so: kp --sources
+kp() { ssh $K $V "sudo -u kpulse bash -c 'cd /home/bgkaranja/kenya-pulse && set -a && . /home/bgkaranja/secrets/kenya-pulse.env && set +a && /usr/bin/python3 kenya_pulse.py $*'"; }
 ENV
-  . ~/.kenya-pulse-env
-}
-echo "V=$V"; echo "K=$K"; ssh $K $V "echo reachable"
+. ~/.kenya-pulse-env
+echo "V=$V"; echo "SRC=$SRC"; ssh $K $V "echo reachable"
 ```
 
-**You should see** the two values, then `reachable`. It writes the file the
-first time and reads it every time after.
+**You should see** the two values, then `reachable`.
 
-### One more line, and the collector gets a lot easier
+`kp <flags>` runs the collector exactly as cron does, so a command that works
+here works on the schedule: `kp --sources`, `kp --health`, `kp --dry`.
 
-The collector runs as `kpulse`, from a fixed directory, with an environment
-file sourced first. That is a mouthful to retype and easy to get subtly wrong,
-so it goes in a function:
+### Tired of typing that
 
 ```bash
-kp() { ssh $K $V "sudo -u kpulse bash -c 'cd /home/bgkaranja/kenya-pulse && \
-  set -a && . /home/bgkaranja/secrets/kenya-pulse.env && set +a && \
-  /usr/bin/python3 kenya_pulse.py $*'"; }
-kp --health | tail -3
+grep -q kenya-pulse-env ~/.bashrc || echo '. ~/.kenya-pulse-env' >> ~/.bashrc
 ```
 
-Every collector command below is `kp <flags>`. It matches what cron actually
-runs, line for line, so a command that works here works on the schedule.
+One line, and every future terminal has it already. Optional — everything below
+works without it, provided you run the block above first.
 
 ### If you see `hostname contains invalid characters`
 
@@ -66,9 +66,14 @@ Two other messages worth telling apart:
 
 | Message | Cause |
 |---|---|
-| `hostname contains invalid characters` | `$V` empty — run the block above |
-| `Permission denied (publickey)` | `$K` empty or the wrong key path |
+| `hostname contains invalid characters` | `$V` empty |
+| `kp: command not found` | the helper lives in that file too |
+| `not a git repository` after `cd $SRC` | `$SRC` empty, so `cd` went to your home |
+| `Permission denied (publickey)` | `$K` empty, or the wrong key path |
 | `Could not resolve hostname` | `$V` set but wrong |
+
+The first three mean one thing: the block above has not been run **in this
+terminal**. Run it and repeat whatever you were doing.
 
 ---
 

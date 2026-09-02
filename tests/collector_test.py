@@ -444,6 +444,28 @@ with tempfile.TemporaryDirectory() as tmp:
     second = subprocess.run(["bash", "-c", s0_block], env=env, capture_output=True, text=True)
     ok("running it again reads the file rather than rewriting it",
        second.returncode == 0 and "reachable" in second.stdout, second.stderr[:120])
+
+    # Everything a session needs has to be in that one file. Saving only V and
+    # K left $SRC and the kp helper behind, and a new terminal then failed with
+    # "not a git repository" and "kp: command not found" instead.
+    envfile = (tmp / ".kenya-pulse-env").read_text()
+    for name in ("V=", "K=", "SRC=", "kp()"):
+        ok(f"the file carries {name.rstrip('=()')}", name in envfile, envfile[:200])
+
+    # and it all survives into a genuinely new shell
+    fresh = subprocess.run(
+        ["bash", "-c", '. ~/.kenya-pulse-env; echo "V=$V"; echo "SRC=$SRC"; '
+                       'type kp >/dev/null 2>&1 && echo KP_OK; kp --sources'],
+        env=env, capture_output=True, text=True)
+    ok("a new terminal that only sources the file gets the host",
+       "V=bgkaranja@" in fresh.stdout, fresh.stdout[:120])
+    ok("and the checkout path", "SRC=" in fresh.stdout and "kenya-pulse-src" in fresh.stdout,
+       fresh.stdout[:120])
+    ok("and the kp helper", "KP_OK" in fresh.stdout, fresh.stdout[:120])
+    ok("kp passes its flags through to the collector",
+       "kenya_pulse.py --sources" in fresh.stdout, fresh.stdout[-200:])
+    ok("and runs it as kpulse, the way cron does",
+       "sudo -u kpulse" in fresh.stdout, fresh.stdout[-200:])
     ok("and yields the same host both times",
        [l for l in first.stdout.splitlines() if l.startswith("V=")]
        == [l for l in second.stdout.splitlines() if l.startswith("V=")],
