@@ -147,7 +147,10 @@ PRECEDENCE = {
     # CBK runs the auction, so CBK is asked first and Serrari is the second
     # opinion. Two independent sources is the point: when one goes quiet the
     # other keeps the rate moving, and the disagreement check sees the gap.
-    "tbill": ["cbk", "cbkbills", "sbills"],
+    # The offer panel is the auction figure to four decimals and carries its own
+    # date; the homepage prints the same number rounded and undated. So the
+    # panel leads, the homepage backs it up, Serrari is third.
+    "tbill": ["cbkbills", "cbk", "sbills"],
     "tbill182": ["cbkbills", "sbills", "manual"],
     "tbill364": ["cbkbills", "sbills", "manual"], "bond10": ["sbonds", "manual"],
     "infra": ["sbonds", "manual"],
@@ -556,7 +559,8 @@ def _parse_date(raw):
             return datetime(y, mo, d).date().isoformat()
         except ValueError:
             return None
-    # 16 Jul 2026 / 16 July 2026
+    # 16 Jul 2026 / 16 July 2026 / 3rd September 2026
+    raw = re.sub(r"(\d{1,2})(st|nd|rd|th)\b", r"\1", raw, flags=re.I)
     m = re.search(r"(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})", raw)
     if m:
         months = {mn: i for i, mn in enumerate(
@@ -589,130 +593,98 @@ def _rate(raw):
 
 def src_cbk_bills():
     """
-    Treasury bill auction results, from CBK itself.
+    Treasury bill rates, from the "Treasury Bills on Offer" panel on CBK's own
+    bills page.
 
-    Serrari carried these until its page stopped moving: on 1 September it was
-    still serving a 16 July auction for an instrument that auctions weekly, and
-    nothing said so. CBK is the body that runs the auction, so it is the right
-    place to ask, and having two independent sources means one going quiet is
-    visible rather than silent.
+    Not from a table. The page carries eight of them and none holds the current
+    rates: there is an offer/maturity calendar, three enormous auction result
+    archives keyed by issue number, a twelve-row sample of 91-day results from
+    2016, a 4,500-row OTC deal blotter, and two re-discount calculators. The
+    first version of this function searched for a table with a tenor column and
+    a rate column, found the 2016 sample, and reported a ten-year-old rate as
+    current.
 
-    The table is read by what its headers say, not by column position, and two
-    layouts are handled because the same numbers get published both ways:
+    The figures are in a text panel instead, one column per tenor:
 
-      long   one row per tenor      | Tenor | ... | Weighted Average Rate |
-      wide   one row per auction    | Date | 91 Day | 182 Day | 364 Day |
+        91-DAY
+        Issue Number: 2698/091
+        Auction Date: 3rd September 2026
+        Value Dated: 7th September 2026
+        Previous Average Interest Rate: 8.7692%
 
-    Whichever it is, the newest row wins and its date travels with the rate as
-    `_asof`. That date is the entire point: it is what lets --sources say a
-    figure is stale at the publisher rather than merely present.
+    which is read the way src_cbk reads the homepage's Key Rates block: by
+    regular expression over the page's text, anchored on the tenor headings.
+
+    One honesty note carried into the date. The rate shown is the *previous*
+    auction's average, while the date shown is the auction now on offer. Bills
+    auction weekly, so the reading is dated a week before the offer rather than
+    on it. Overstating freshness by a week is exactly the error that let a
+    frozen 182-day rate sit unnoticed.
     """
     out = {}
-    KEYS = {"91": "tbill", "182": "tbill182", "364": "tbill364"}
+    TENORS = (("91", "tbill"), ("182", "tbill182"), ("364", "tbill364"))
     try:
-        soup = BeautifulSoup(get(CBK_BILLS).text, "lxml")
+        txt = BeautifulSoup(get(CBK_BILLS).text, "lxml").get_text(" ", strip=True)
+        m = re.search(r"Treasury Bills on Offer(.{0,1600})", txt, re.I | re.S)
+        if not m:
+            raise RuntimeError("the 'Treasury Bills on Offer' panel is not on the page")
+        block = m.group(1)
 
-        # --- long: a tenor column and a rate column -------------------------
-        # The same column gets called several things across CBK's own pages, so
-        # the plausible spellings are tried in turn rather than one being
-        # assumed. Anything else falls through to the loud failure below.
-        head, rows = None, []
-        for _a, _b in (("tenor", "rate"), ("term", "rate"),
-                       ("tenor", "yield"), ("term", "yield")):
-            head, rows = _find_table(soup, _a, _b)
-            if rows:
-                break
-        if rows:
-            best = {}
-            for r in rows:
-                cells = [c.get_text(" ", strip=True) for c in r.find_all(["td", "th"])]
-                if len(cells) < len(head):
-                    continue
-                d = dict(zip(head, cells))
-                tenor = next((v for k, v in d.items()
-                              if "tenor" in k or "term" in k), "")
-                t = re.search(r"\b(91|182|364)\b", tenor)
-                rate_key = next((k for k in d if "rate" in k or "yield" in k), None)
-                if not (t and rate_key):
-                    continue
-                v = _rate(d[rate_key])
-                if v is None:
-                    continue
-                date_key = next((k for k in d if "date" in k), None)
-                when = _parse_date(d.get(date_key)) if date_key else None
-                key = KEYS[t.group(1)]
-                # newest row per tenor; an undated row only fills a gap
-                if key not in best or (when and (not best[key][1] or when > best[key][1])):
-                    best[key] = (v, when)
-            for key, (v, when) in best.items():
-                out[key] = v
-                if when and when > out.get("_asof", ""):
-                    out["_asof"] = when
+        offers = []
+        for days, key in TENORS:
+            # from this tenor's heading up to the next one, so a rate can never
+            # be read out of a neighbouring column
+            seg = re.search(rf"\b{days}\s*-?\s*DAY\b(.*?)(?=\b(?:91|182|364)\s*-?\s*DAY\b|$)",
+                            block, re.I | re.S)
+            if not seg:
+                continue
+            body = seg.group(1)
+            rate = re.search(r"Average\s+Interest\s+Rate\s*:?\s*([\d.]+)\s*%", body, re.I)
+            if not rate:
+                continue
+            v = _rate(rate.group(1))
+            if v is None:
+                continue
+            out[key] = v
+            auc = re.search(r"Auction\s+Date\s*:?\s*([0-9]{1,2}[a-z]{0,2}\s+[A-Za-z]+\s+[0-9]{4})",
+                            body, re.I)
+            when = _parse_date(auc.group(1)) if auc else None
+            if when:
+                offers.append(when)
 
-        # --- wide: a column per tenor ---------------------------------------
-        if not any(k in out for k in KEYS.values()):
-            head, rows = _find_table(soup, "91")
-            cols = {}
-            for i, h in enumerate(head or []):
-                t = re.search(r"\b(91|182|364)\b", h)
-                if t and ("day" in h or "-d" in h or h.strip().isdigit()):
-                    cols[KEYS[t.group(1)]] = i
-            date_i = next((i for i, h in enumerate(head or []) if "date" in h), None)
-            newest = None
-            for r in rows:
-                cells = [c.get_text(" ", strip=True) for c in r.find_all(["td", "th"])]
-                when = _parse_date(cells[date_i]) if date_i is not None and date_i < len(cells) else None
-                got = {k: _rate(cells[i]) for k, i in cols.items() if i < len(cells)}
-                got = {k: v for k, v in got.items() if v is not None}
-                if not got:
-                    continue
-                if newest is None or (when and (not newest[1] or when > newest[1])):
-                    newest = (got, when)
-            if newest:
-                out.update(newest[0])
-                if newest[1]:
-                    out["_asof"] = newest[1]
-
-        if not any(k in out for k in KEYS.values()):
-            # Say what was actually on the page. A scraper that fails silently
-            # is what cost six weeks of a frozen 182-day rate.
-            seen = [", ".join(t.find_all("tr")[0].get_text(" ", strip=True).split()[:8])
-                    for t in soup.find_all("table")[:4]]
+        if not out:
             raise RuntimeError(
-                "no tenor/rate table found; headers seen: "
-                + (" | ".join(seen) if seen else "no tables at all"))
+                "found the panel but no rates in it; first 200 characters: "
+                + re.sub(r"\s+", " ", block[:200]))
 
-        # Found *a* table is not the same as found the *right* one. The first
-        # run of this scraper matched something on the page dated 2016 and
-        # reported a ten-year-old 91-day rate as current, which is worse than
-        # returning nothing: a wrong number that looks plausible propagates.
-        # A Treasury bill auction is weekly, so a date a year out is proof the
-        # match is wrong, and the parse is thrown away rather than trusted.
-        when = out.get("_asof")
-        if when:
-            age = (datetime.now(timezone.utc).date()
-                   - datetime.fromisoformat(when).date()).days
-            if age > 400 or age < -2:
-                raise RuntimeError(
-                    f"matched a table dated {when} ({age} days), which cannot be a "
-                    f"current auction - wrong table. Values discarded: "
-                    + ", ".join(f"{k}={v}" for k, v in out.items() if k != "_asof"))
+        if offers:
+            # the rate belongs to the auction before the one on offer
+            newest = max(offers)
+            out["_asof"] = (datetime.fromisoformat(newest).date()
+                            - timedelta(days=7)).isoformat()
         else:
             raise RuntimeError(
-                "found rates but no auction date, so their age cannot be judged: "
+                "read rates but no auction date, so their age cannot be judged: "
                 + ", ".join(f"{k}={v}" for k, v in out.items()))
 
-        missing = [t for t, k in KEYS.items() if k not in out]
-        if missing:
-            log(f"    cbk bills: only found {', '.join(sorted(set(KEYS) - set(missing)))}"
-                f"-day; {', '.join(missing)}-day not in that table")
+        # Found something is not the same as found the right thing. A bill
+        # auctions weekly, so a date a year out proves the match is wrong, and
+        # the parse is discarded rather than trusted.
+        age = (datetime.now(timezone.utc).date()
+               - datetime.fromisoformat(out["_asof"]).date()).days
+        if age > 400 or age < -9:
+            raise RuntimeError(
+                f"panel dated {out['_asof']} ({age} days) cannot be a current auction. "
+                "Values discarded: "
+                + ", ".join(f"{k}={v}" for k, v in out.items() if k != "_asof"))
 
+        missing = [d for d, k in TENORS if k not in out]
+        if missing:
+            log(f"    cbk bills: {', '.join(missing)}-day not in the offer panel")
         log(f"    cbk bills: 91d {out.get('tbill')}% · 182d {out.get('tbill182')}% "
             f"· 364d {out.get('tbill364')}% · auction {out.get('_asof', '?')}")
     except Exception as e:
-        # Nothing, not the half of it that parsed before the failure. A partly
-        # read table hands back numbers from the wrong columns, and a plausible
-        # wrong number beats a missing one straight into the ladder.
+        # Nothing, not the half that parsed before the failure.
         log(f"    cbk bills FAILED: {e}")
         return {}
     return out

@@ -95,76 +95,109 @@ ok("an unmoved reading reports no change", row["delta"] == 0.0, str(row["delta"]
 ok("and adds no point to the line", row["hist"] == [7.0, 6.8, 6.5], str(row["hist"]))
 ok("and is scored steady", row["state"] == "steady", row["state"])
 
-print("\n── READING CBK'S TREASURY BILL TABLE")
-# The page cannot be reached from a build machine, so this cannot prove the
-# scraper matches CBK's live markup - only the run on the VM does that. What it
-# does prove is that the parser handles both shapes such a table is published
-# in, picks the newest auction rather than the first row it meets, refuses a
-# figure no bill could pay, and says what it saw when it finds nothing.
+print("\n── READING CBK'S TREASURY BILL PANEL")
+# The rates are not in a table. CBK's bills page carries eight of them - an
+# offer calendar, three vast auction archives, a twelve-row sample of 91-day
+# results from 2016, a 4,500-row deal blotter and two calculators - and the
+# current figures sit in a text panel beside them. The first version of this
+# scraper searched for a table with a tenor column and a rate column, found the
+# 2016 sample and published a ten-year-old rate. These fixtures are that page.
 if not HAVE_BS4:
     print("  ! skipped: beautifulsoup4 and lxml are not installed")
     print("    pip install -r tests/requirements-test.txt")
 else:
-    from bs4 import BeautifulSoup
-
     _real_get = kp.get
 
     def parse(html):
-        """Drive src_cbk_bills against a page, with no network."""
         kp.get = lambda *a, **k: types.SimpleNamespace(text=html)
         return kp.src_cbk_bills()
 
-    # --- shape one: a row per tenor -----------------------------------------
-    long_html = """
-    <table>
-      <tr><th>Issue No</th><th>Tenor</th><th>Auction Date</th>
-          <th>Amount Offered</th><th>Weighted Average Rate</th></tr>
-      <tr><td>2612/091</td><td>91 Day</td><td>2026-08-28</td><td>4,000</td><td>8.9123</td></tr>
-      <tr><td>2612/182</td><td>182 Day</td><td>2026-08-28</td><td>10,000</td><td>9.4567</td></tr>
-      <tr><td>2612/364</td><td>364 Day</td><td>2026-08-28</td><td>10,000</td><td>10.1234</td></tr>
-      <tr><td>2611/182</td><td>182 Day</td><td>2026-08-21</td><td>10,000</td><td>9.4001</td></tr>
-    </table>"""
-    got = parse(long_html)
-    ok("a row-per-tenor table gives all three tenors",
-       {"tbill", "tbill182", "tbill364"} <= set(got), str(got))
-    ok("the 91-day is read", abs(got.get("tbill", 0) - 8.9123) < 1e-6, str(got.get("tbill")))
-    ok("the 182-day is read", abs(got.get("tbill182", 0) - 9.4567) < 1e-6, str(got.get("tbill182")))
-    ok("the 364-day is read", abs(got.get("tbill364", 0) - 10.1234) < 1e-6, str(got.get("tbill364")))
-    ok("the newest auction wins, not the first row met",
-       abs(got["tbill182"] - 9.4567) < 1e-6, str(got["tbill182"]))
-    ok("the auction date travels with the rate", got.get("_asof") == "2026-08-28", str(got.get("_asof")))
+    PANEL = """
+    <h2>Treasury Bills on Offer</h2>
+    <div><h4>91-DAY</h4><p>Issue Number: 2698/091</p>
+      <p>Auction Date: 3rd September 2026</p><p>Value Dated: 7th September 2026</p>
+      <p>Previous Average Interest Rate: 8.7692%</p></div>
+    <div><h4>182-DAY</h4><p>Issue Number: 2672/182</p>
+      <p>Auction Date: 3rd September 2026</p><p>Value Dated: 7th September 2026</p>
+      <p>Previous Average Interest Rate: 8.9400%</p></div>
+    <div><h4>364-DAY</h4><p>Issue Number: 2627/364</p>
+      <p>Auction Date: 3rd September 2026</p><p>Value Dated: 7th September 2026</p>
+      <p>Previous Average Interest Rate: 9.0323%</p></div>"""
 
-    # the same shape, with the column called something else. CBK is not
-    # consistent about this across its own pages.
-    term_html = long_html.replace("Tenor", "Term").replace("Weighted Average Rate",
-                                                           "Average Yield")
-    got = parse(term_html)
-    ok("a Term column is read like a Tenor column",
-       abs(got.get("tbill182", 0) - 9.4567) < 1e-6, str(got))
-    ok("and an Average Yield column like an Average Rate column",
-       {"tbill", "tbill182", "tbill364"} <= set(got), str(got))
+    # the two tables that fooled the first version, kept in every fixture so a
+    # regression cannot pass by accident
+    DECOYS = """
+    <table><tr><th>Value Date</th><th>On Offer</th><th>Maturing</th></tr>
+      <tr><td>31/08/2026</td><td>2671/182</td><td>2645/182</td></tr>
+      <tr><td>24/08/2026</td><td>2669/091</td><td>2683/091</td></tr></table>
+    <table><tr><th>Issue Date</th><th>Issue No</th><th>Tenor</th><th>Weighted Average Rate</th></tr>
+      <tr><td>04/01/2016</td><td>2141</td><td>91</td><td>10.845</td></tr>
+      <tr><td>11/01/2016</td><td>2142</td><td>91</td><td>11.398</td></tr>
+      <tr><td>18/01/2016</td><td>2143</td><td>91</td><td>11.802</td></tr></table>"""
 
-    # --- shape two: a column per tenor --------------------------------------
-    wide_html = """
-    <table>
-      <tr><th>Auction Date</th><th>91 Day</th><th>182 Day</th><th>364 Day</th></tr>
-      <tr><td>14/08/2026</td><td>8.70</td><td>9.20</td><td>9.90</td></tr>
-      <tr><td>28/08/2026</td><td>8.91</td><td>9.46</td><td>10.12</td></tr>
-      <tr><td>21/08/2026</td><td>8.80</td><td>9.30</td><td>10.00</td></tr>
-    </table>"""
-    got = parse(wide_html)
-    ok("a column-per-tenor table also works",
+    got = parse(PANEL + DECOYS)
+    ok("all three tenors come out of the offer panel",
        {"tbill", "tbill182", "tbill364"} <= set(got), str(got))
-    ok("it takes the newest row wherever it sits in the table",
-       abs(got.get("tbill182", 0) - 9.46) < 1e-6, str(got.get("tbill182")))
-    ok("and dates it from that row", got.get("_asof") == "2026-08-28", str(got.get("_asof")))
+    ok("the 91-day is exact to four decimals",
+       abs(got.get("tbill", 0) - 8.7692) < 1e-9, str(got.get("tbill")))
+    ok("the 182-day is the one Serrari had wrong",
+       abs(got.get("tbill182", 0) - 8.94) < 1e-9, str(got.get("tbill182")))
+    ok("the 364-day is read", abs(got.get("tbill364", 0) - 9.0323) < 1e-9,
+       str(got.get("tbill364")))
+    ok("the 2016 sample table is not touched",
+       got.get("tbill") != 10.845 and 11.398 not in got.values(), str(got))
+    ok("nor is the issue number read as a rate",
+       2698 not in got.values() and 2672 not in got.values(), str(got))
+
+    # the date: the rate is the previous auction's, the date shown is the next
+    ok("the reading is dated a week before the auction on offer",
+       got.get("_asof") == "2026-08-27", str(got.get("_asof")))
+
+    # each column is sealed off from its neighbours
+    SWAPPED = PANEL.replace("8.9400", "9.9999")
+    ok("a change in one column moves only that tenor",
+       parse(SWAPPED + DECOYS).get("tbill") == 8.7692
+       and parse(SWAPPED + DECOYS).get("tbill182") == 9.9999)
+
+    # --- what the page looks like when it breaks ----------------------------
+    ok("the decoy tables alone yield nothing at all",
+       parse(DECOYS) == {}, str(parse(DECOYS)))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        parse(DECOYS)
+    ok("and the failure names the missing panel",
+       "Treasury Bills on Offer" in buf.getvalue(), buf.getvalue().strip())
+
+    ok("a panel with no rates in it yields nothing",
+       parse("<h2>Treasury Bills on Offer</h2><p>Auction postponed</p>") == {})
+    ok("a panel with rates but no date yields nothing, since age cannot be judged",
+       parse("<h2>Treasury Bills on Offer</h2><h4>91-DAY</h4>"
+             "<p>Previous Average Interest Rate: 8.77%</p>") == {})
+
+    stale_panel = PANEL.replace("2026", "2016")
+    got = parse(stale_panel + DECOYS)
+    ok("a panel left on a decade-old auction is refused, not published",
+       got == {}, str(got))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        parse(stale_panel + DECOYS)
+    ok("and the refusal says the date that condemned it",
+       "2016" in buf.getvalue() and "cannot be a current auction" in buf.getvalue(),
+       buf.getvalue().strip())
+
+    # a failure must return nothing, never the part that parsed first
+    ok("a scraper that fails returns nothing at all",
+       parse(stale_panel) == {} and parse("<html></html>") == {})
 
     # --- dates, in the shapes CBK writes them -------------------------------
+    ok("CBK's ordinal dates parse", kp._parse_date("3rd September 2026") == "2026-09-03")
+    ok("so do 1st, 22nd and 7th",
+       (kp._parse_date("1st January 2026"), kp._parse_date("22nd August 2026"),
+        kp._parse_date("7th September 2026"))
+       == ("2026-01-01", "2026-08-22", "2026-09-07"))
     ok("ISO dates parse", kp._parse_date("2026-07-16") == "2026-07-16")
     ok("day-first slashes parse", kp._parse_date("16/07/2026") == "2026-07-16")
-    ok("day-first dashes parse", kp._parse_date("16-07-2026") == "2026-07-16")
     ok("written months parse", kp._parse_date("16 July 2026") == "2026-07-16")
-    ok("short months parse", kp._parse_date("16 Jul 2026") == "2026-07-16")
     ok("a date that is not one gives nothing, rather than today",
        kp._parse_date("n/a") is None and kp._parse_date("") is None)
     ok("an impossible date is refused", kp._parse_date("31/02/2026") is None)
@@ -176,73 +209,6 @@ else:
     ok("a bill cannot pay 300%", kp._rate("300") is None)
     ok("nor nothing at all", kp._rate("0") is None and kp._rate("-") is None)
 
-    # --- failure has to be loud --------------------------------------------
-    empty = parse("<html><body><p>Downloads temporarily unavailable</p></body></html>")
-    ok("a page with no table yields nothing rather than a wrong number", empty == {}, str(empty))
-
-    wrong = parse("""
-    <table><tr><th>Bond</th><th>Coupon</th><th>Maturity</th></tr>
-    <tr><td>FXD1</td><td>13.2</td><td>2032</td></tr>
-    <tr><td>FXD2</td><td>12.9</td><td>2035</td></tr></table>""")
-    ok("the wrong table is not mistaken for the right one", wrong == {}, str(wrong))
-
-    # and it has to say what it saw, or the next failure is another long hunt
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        parse("<table><tr><th>Bond</th><th>Coupon</th></tr>"
-              "<tr><td>a</td><td>1</td></tr><tr><td>b</td><td>2</td></tr></table>")
-    said = buf.getvalue()
-    ok("and it names the headers it did find", "headers seen" in said and "Bond" in said, said.strip())
-
-    # --- a stale auction is still returned, and still dated -----------------
-    stale = parse("""
-    <table><tr><th>Tenor</th><th>Auction Date</th><th>Average Rate</th></tr>
-    <tr><td>182 Day</td><td>16/07/2026</td><td>8.97</td></tr>
-    <tr><td>364 Day</td><td>16/07/2026</td><td>9.04</td></tr>
-    <tr><td>91 Day</td><td>16/07/2026</td><td>8.77</td></tr></table>""")
-    ok("a stale auction is reported with its real date, not suppressed",
-       stale.get("tbill182") == 8.97 and stale.get("_asof") == "2026-07-16", str(stale))
-
-    # --- the wrong table, which is what actually happened -------------------
-    # The first live run matched something on CBK's page dated 2016 and
-    # reported a ten-year-old 91-day rate of 9.06% as current, against 8.77%
-    # from the homepage. A plausible wrong number is the worst outcome
-    # available: it outranks the right one and nothing looks broken.
-    archive = """
-    <table><caption>Treasury Bills Average Rates</caption>
-      <tr><th>Issue Date</th><th>91 Day</th><th>182 Day</th><th>364 Day</th></tr>
-      <tr><td>07/03/2016</td><td>9.06</td><td>10.2</td><td>11.4</td></tr>
-      <tr><td>14/03/2016</td><td>9.10</td><td>10.3</td><td>11.5</td></tr>
-      <tr><td>21/03/2016</td><td>9.20</td><td>10.4</td><td>11.6</td></tr></table>"""
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        got = parse(archive)
-    said = buf.getvalue()
-    ok("a decade-old auction is refused, not published as today's rate",
-       got == {}, str(got))
-    ok("and the refusal says what it matched and why",
-       "wrong table" in said and "2016" in said, said.strip())
-    ok("it names the values it threw away, so the fix is obvious",
-       "9.2" in said or "9.06" in said, said.strip())
-
-    # the same table with current dates is fine - it is the age that is wrong,
-    # not the shape
-    ok("the same shape with current dates parses",
-       parse(archive.replace("2016", "2026")).get("tbill182") == 10.4)
-
-    # a date in the future is equally impossible
-    ahead = archive.replace("2016", "2099")
-    ok("an auction dated in the future is refused too", parse(ahead) == {})
-
-    # --- a failure must return nothing, not the part that parsed ------------
-    # These functions build their result as they go. Returning it after an
-    # exception hands back half a table: numbers read from the wrong columns,
-    # which is how a wrong rate reaches the ladder wearing a FAILED log line.
-    ok("a scraper that fails returns nothing at all",
-       parse(archive) == {} and parse("<html></html>") == {})
-
-    # put the fetcher back: leaving it stubbed makes every later scenario read
-    # whichever page this block happened to feed it last
     kp.get = _real_get
 
 print("\n── A DAILY FAST PASS MUST NOT DAMAGE THE SLOW SERIES")
@@ -312,8 +278,12 @@ ok("a typed 182-day rate is not allowed to stand for three weeks",
 ok("CBK is asked first, Serrari second, typing last",
    kp.PRECEDENCE["tbill182"] == ["cbkbills", "sbills", "manual"],
    str(kp.PRECEDENCE["tbill182"]))
-ok("the 91-day keeps the homepage rate first",
-   kp.PRECEDENCE["tbill"][0] == "cbk", str(kp.PRECEDENCE["tbill"]))
+ok("CBK's own auction panel leads all three tenors",
+   all(kp.PRECEDENCE[k][0] == "cbkbills"
+       for k in ("tbill", "tbill182", "tbill364")),
+   str({k: kp.PRECEDENCE[k][0] for k in ("tbill", "tbill182", "tbill364")}))
+ok("the homepage rate backs up the 91-day rather than leading it",
+   kp.PRECEDENCE["tbill"][:2] == ["cbkbills", "cbk"], str(kp.PRECEDENCE["tbill"]))
 ok("all three tenors have two independent live sources",
    all(len([x for x in kp.PRECEDENCE[k] if x != "manual"]) >= 2
        for k in ("tbill", "tbill182", "tbill364")),

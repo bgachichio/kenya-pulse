@@ -79,9 +79,10 @@ and rollback.
   private-key detection run pre-commit (`.pre-commit-config.yaml`).
 
 **Two sources for every Treasury bill.** CBK runs the auction, so
-`src_cbk_bills` reads
-[its results table](https://www.centralbank.go.ke/bills-bonds/treasury-bills/)
-first; Serrari is the second opinion; a typed figure is the last resort. Each
+`src_cbk_bills` reads the *Treasury Bills on Offer* panel on
+[its bills page](https://www.centralbank.go.ke/bills-bonds/treasury-bills/)
+first — a text panel, not one of the page's eight tables, none of which holds
+the current rates; Serrari is the second opinion; a typed figure is the last resort. Each
 rate carries the date of the auction it came from, so `--sources` can say a
 figure is stale *at the publisher* rather than merely present. That distinction
 exists because Serrari once served a 16 July auction into September without
@@ -187,7 +188,7 @@ npx vercel --prod
 
 ## Tests
 
-Eighteen suites, 654 assertions. Most run against the component mounted under
+Eighteen suites, 649 assertions. Most run against the component mounted under
 Node with no browser at all; the push work is checked three ways, because a
 notification that fails silently is worse than none, and the design tokens are
 read back out of a real browser rather than trusted.
