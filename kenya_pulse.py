@@ -1681,6 +1681,7 @@ def sources_report():
     print(f"\n  {'INDICATOR':12} {'VALUE':>12}  {'FROM':9} {'AS OF':11} {'AGE':>5}  EXPECTED")
     print("  " + "-" * 78)
     missing, offlist, stale_at_source, undated = [], [], [], []
+    fell_to_annual = []
     for ind, (label, group, unit, direction, freq) in REGISTER.items():
         want = PRECEDENCE.get(ind, ["any"])
         got_from = prov.get(ind)
@@ -1690,8 +1691,18 @@ def sources_report():
         age = f.get("ageDays")
         age_s = "-" if age is None else str(age)
         if v is None:
-            missing.append(ind)
-            print(f"  {ind:12} {'-':>12}  {'-':9} {'-':11} {'-':>5}  {'/'.join(want)}   <- MISSING")
+            # A real run applies the World Bank annual fallbacks after this
+            # point, so a key with one is not actually missing from the app -
+            # it arrives relabelled and caveated. Saying MISSING flatly sent
+            # someone hunting for a figure that was already there.
+            if ind in WB_FALLBACK:
+                print(f"  {ind:12} {'-':>12}  {'-':9} {'-':11} {'-':>5}  "
+                      f"{'/'.join(want)}   <- none live; annual fallback fills it")
+                fell_to_annual.append(ind)
+            else:
+                missing.append(ind)
+                print(f"  {ind:12} {'-':>12}  {'-':9} {'-':11} {'-':>5}  "
+                      f"{'/'.join(want)}   <- MISSING")
             continue
         # A figure that arrived from a lower-ranked source than it should have
         # is the quiet failure: it is present, it is just not from the place
@@ -1734,6 +1745,9 @@ def sources_report():
         print(f"  collected but not registered: {', '.join(extra)}")
     if missing:
         print(f"  missing entirely: {', '.join(missing)}")
+    if fell_to_annual:
+        print(f"  filled by a World Bank annual series, relabelled and caveated"
+              f" in the app: {', '.join(fell_to_annual)}")
     if offlist:
         print(f"  came from a fallback, not their live source: {', '.join(offlist)}")
     if stale_at_source:

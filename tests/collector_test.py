@@ -405,6 +405,35 @@ ok("and cannot exceed the register it counts against",
 ok("keys collected but not registered are listed separately, not counted",
    "collected but not registered" in out and "mmf_top" in out, "")
 
+# debtserv has no live source by design and is filled from a World Bank annual
+# series with a caveat. Reporting it as MISSING sent someone looking for a
+# figure the app already had.
+_prev_manual = kp.src_manual
+kp.src_manual = lambda: ({"npl": 16.4, "reserves": 10.2, "cover": 4.9,
+                          "cab": -3.0, "gdp": 5.3, "debt": 11.6,
+                          "debt_gdp": 69.9}, {})          # no debtserv typed
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    kp.sources_report()
+out_fb = buf.getvalue()
+kp.src_manual = _prev_manual
+
+ok("a key with an annual fallback is not called missing",
+   not re.search(r"debtserv.*MISSING", out_fb),
+   [l for l in out_fb.splitlines() if "debtserv" in l])
+ok("it is described as filled by the fallback instead",
+   re.search(r"debtserv.*annual fallback fills it", out_fb) is not None,
+   [l for l in out_fb.splitlines() if "debtserv" in l])
+ok("and the summary says where that figure comes from",
+   "World Bank annual series, relabelled and caveated" in out_fb, "")
+ok("a key with no fallback at all is still called missing",
+   "world_gdp" in out_fb.split("missing entirely")[1][:60]
+   if "missing entirely" in out_fb else False,
+   out_fb.split("missing entirely")[1][:60] if "missing entirely" in out_fb else "none")
+ok("debtserv is not in that missing list",
+   "debtserv" not in out_fb.split("missing entirely")[1][:80]
+   if "missing entirely" in out_fb else True, "")
+
 # "is the connection working" is a different question from "is the figure
 # fresh", and it gets its own line rather than being inferred from the table.
 ok("the report states how many live sources answered",
