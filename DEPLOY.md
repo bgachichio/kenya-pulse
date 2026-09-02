@@ -114,45 +114,107 @@ curl -s https://gachichio.org/pulse/data.json | head -c 60; echo
 ## A6 · Put it on a schedule
 
 The collector had no documented schedule, which is why rates could sit
-unchanged for a fortnight: nothing was running. Two entries, because the
-figures move at different speeds and the cheap pass covers the fast ones.
+unchanged for a fortnight: nothing was running.
+
+**Cron runs on the machine's clock, not on UTC.** So the timezone is pinned in
+the crontab rather than assumed, and the times below are Nairobi times.
 
 ```bash
-ssh $K $V "crontab -l 2>/dev/null | grep -v kenya_pulse.py | {
+ssh $K $V "crontab -l 2>/dev/null | grep -Ev 'kenya_pulse\.py|^CRON_TZ=' | {
   cat
-  echo '17 4 * * *   cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --fast >> ~/collect.log 2>&1'
-  echo '35 4 * * 1   cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py      >> ~/collect.log 2>&1'
-  echo '5  3 1 * *   cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --compact >> ~/collect.log 2>&1'
+  echo 'CRON_TZ=Africa/Nairobi'
+  echo '20 18 * * *  cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --fast >> ~/collect.log 2>&1'
+  echo '40 18 * * 1  cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py       >> ~/collect.log 2>&1'
+  echo '5   3 1 * *  cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --compact >> ~/collect.log 2>&1'
 } | crontab -"
 ```
 
-- **Daily at 04:17 UTC** (07:17 Nairobi), `--fast`: rates, markets and currency.
-  About 15 seconds. These are the figures that move daily.
-- **Mondays at 04:35 UTC**, the full sweep: adds the IMF and World Bank series
-  and the long history. About 3 minutes.
-- **First of the month**, `--compact`: rolls history older than two years into
-  gzipped archives.
+- **Daily, 18:20 Nairobi**, `--fast`: rates, markets and currency, about 15
+  seconds. Evening rather than morning so the day's CBK and NSE figures are
+  already published when it runs.
+- **Mondays, 18:40 Nairobi**, the full sweep: adds the IMF and World Bank
+  series and the long history. About 3 minutes.
+- **1st of the month, 03:05**, `--compact`: rolls history older than two years
+  into gzipped archives.
 
-Odd minutes rather than the hour so this never lines up with anything else.
+Odd minutes, so this never lines up with the push sender on `*/5`.
 
-**What it costs.** One history row is about 1.1 KB. Daily plus weekly is 417
-runs a year, so **436 KB a year**, and `--compact` archives anything past two
-years. `data.json` is 16 KB and is overwritten, not appended. Peak memory is
-one Python process for 15 seconds a day and 3 minutes a week. Nothing touches
-Supabase.
+`CRON_TZ` goes **after** the existing entries, not before them. A cron
+environment line applies to every line below it, so putting it at the top would
+have quietly re-timed whatever else is in there — certbot at `0 2 * * *` would
+have moved by three hours. Placed last, it governs the three collector lines
+and nothing else.
 
-**Why the chart does not get worse.** History is one row per run, so collecting
-more often used to mean a monthly figure drew twenty-four points covering three
-weeks - a flat line about a series that moves every month. The collector now
-stores the levels a figure has taken rather than the times it was looked at, so
-the sparklines read the same whatever the schedule.
+The `grep -Ev` makes it safe to run twice: it strips any previous collector
+lines and `CRON_TZ` before re-adding them, and leaves everything else — the
+push sender, certbot — untouched. Tested against an empty crontab, a populated
+one, and three consecutive applications.
 
-Check it took:
+### Stop the log growing for ever
+
+`collect.log` gains about 2.5 KB a run, so roughly **1 MB a year** with nothing
+to bound it. `push.log` has the same problem. One rotation covers both:
 
 ```bash
-ssh $K $V "crontab -l | grep kenya_pulse"
+ssh $K $V "sudo tee /etc/logrotate.d/kenya-pulse > /dev/null" <<'CONF'
+/home/bgkaranja/collect.log /home/bgkaranja/push.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+CONF
+ssh $K $V "sudo logrotate -d /etc/logrotate.d/kenya-pulse 2>&1 | tail -5"
+```
+
+**You should see** logrotate's dry run naming both files and no error. A month
+of logs, compressed, then discarded.
+
+### What it costs
+
+| | |
+|---|---|
+| History rows | 1.1 KB each · 417 runs a year · **436 KB a year** |
+| Older than two years | archived gzipped by `--compact` |
+| `data.json` | 16 KB, overwritten each run, never appended |
+| `collect.log` | ~2.5 KB a run, held to four compressed weeks |
+| Memory | one Python process, 15 seconds a day and 3 minutes a week |
+| Supabase | untouched |
+
+### Why collecting more often does not spoil the charts
+
+History is one row per run, so a monthly figure sampled daily would have drawn
+two dozen identical points — a flat line about a series that moves every month.
+The collector now stores the levels a figure has taken rather than the times it
+was looked at, so a sparkline reads the same whatever the schedule.
+
+The mixed schedule is safe for the slow series too. A `--fast` row simply omits
+the indicators it does not collect, and `score()` skips absent keys rather than
+reading them as gaps, so an annual figure's history and its prior are built
+only from the full runs that actually carry it. Checked in
+`tests/collector_test.py`.
+
+### Confirm it took
+
+```bash
+ssh $K $V "date; crontab -l | grep -E 'CRON_TZ|kenya_pulse'"
+```
+
+**You should see** `CRON_TZ=Africa/Nairobi` and the three lines. `date` tells
+you the machine's own clock, which is what cron would have used without that
+first line.
+
+Then wait for the next daily pass, or force one now:
+
+```bash
+ssh $K $V "cd ~/kenya-pulse && .venv/bin/python kenya_pulse.py --fast" | tail -5
 ssh $K $V "tail -5 ~/collect.log"
 ```
+
+If `crontab -` rejects `CRON_TZ=` — some very old cron builds do — drop that
+line and read the times as the machine's local clock, which `date` prints.
 
 ## A7 · Rollback, tested not assumed
 

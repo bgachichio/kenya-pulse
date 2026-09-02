@@ -83,6 +83,34 @@ ok("an unmoved reading reports no change", row["delta"] == 0.0, str(row["delta"]
 ok("and adds no point to the line", row["hist"] == [7.0, 6.8, 6.5], str(row["hist"]))
 ok("and is scored steady", row["state"] == "steady", row["state"])
 
+print("\n── A DAILY FAST PASS MUST NOT DAMAGE THE SLOW SERIES")
+# The schedule in DEPLOY.md A6 runs --fast daily and the full sweep weekly. A
+# fast row simply omits the indicators it does not collect, so an annual figure
+# must build its history from the full runs only, and must not read the gaps
+# between them as anything at all.
+mixed = []
+for world, infl in [(3.2, 7.0), (None, 7.0), (None, 6.8), (None, 6.8),
+                    (3.1, 6.5), (None, 6.5), (None, 6.5), (None, 6.2)]:
+    row = {"inflation": infl}
+    if world is not None:
+        row["world_gdp"] = world
+    mixed.append({"values": row})
+
+res = kp.score({"inflation": 6.0, "world_gdp": 3.0},
+               {"inflation": "cbk", "world_gdp": "imf"}, mixed, [])
+w = next(r for r in res if r["id"] == "world_gdp")
+i = next(r for r in res if r["id"] == "inflation")
+ok("an annual series sees only the full runs that carry it",
+   w["hist"] == [3.2, 3.1, 3.0], str(w["hist"]))
+ok("and its prior is the previous full run, not yesterday's fast one",
+   w["prior"] == 3.1, str(w["prior"]))
+ok("its change is measured across full runs",
+   abs(w["delta"] - (3.0 - 3.1)) < 1e-9, str(w["delta"]))
+ok("a daily series still gets its own full line",
+   i["hist"] == [7.0, 6.8, 6.5, 6.2, 6.0], str(i["hist"]))
+ok("the repeated fast readings added no points to it",
+   len(i["hist"]) == 5, str(i["hist"]))
+
 print("\n── THE 182-DAY BILL")
 ok("it is registered as a weekly instrument",
    REG["tbill182"][4] == "weekly", REG["tbill182"][4])
@@ -168,6 +196,90 @@ ok("and cannot exceed the register it counts against",
    m and int(m.group(1)) <= int(m.group(2)), m.group(0) if m else "")
 ok("keys collected but not registered are listed separately, not counted",
    "collected but not registered" in out and "mmf_top" in out, "")
+
+print("\n── THE CRON BLOCK IN DEPLOY.MD ACTUALLY WORKS")
+# The command in the deploy guide is extracted from the document and run for
+# real against a stand-in crontab. A documented command nobody executes is a
+# guess, and this one has to be safe to run twice on a box that already has
+# other jobs in it.
+import subprocess
+import tempfile
+import textwrap
+
+deploy = (ROOT / "DEPLOY.md").read_text()
+a6 = deploy[deploy.index("## A6 · Put it on a schedule"):deploy.index("## A7 ")]
+block = a6.split("```bash", 1)[1].split("```", 1)[0].strip()
+ok("the A6 cron block is still findable", "crontab -" in block, block[:60])
+
+# unwrap `ssh $K $V "…"` so the inner script runs locally
+inner = block[block.index('"') + 1:block.rindex('"')]
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    fake = tmp / "crontab"
+    fake.write_text(textwrap.dedent("""\
+        #!/bin/bash
+        # faithful crontab(1): the writer drains stdin before replacing the spool
+        STORE="$CRONTEST_STORE"
+        case "$1" in
+          -l) [ -s "$STORE" ] || { echo "no crontab" >&2; exit 1; }; cat "$STORE";;
+          -)  t=$(mktemp); cat > "$t"; mv "$t" "$STORE";;
+          *)  exit 2;;
+        esac
+        """))
+    fake.chmod(0o755)
+    store = tmp / "spool"
+    env = {**__import__("os").environ,
+           "PATH": f"{tmp}:{__import__('os').environ['PATH']}",
+           "CRONTEST_STORE": str(store)}
+
+    def run():
+        return subprocess.run(["bash", "-c", inner], env=env,
+                              capture_output=True, text=True)
+
+    # 1. an empty crontab
+    r = run()
+    ok("it runs cleanly against an empty crontab", r.returncode == 0, r.stderr[:120])
+    ok("and installs three collector entries",
+       store.read_text().count("kenya_pulse.py") == 3, store.read_text())
+
+    # 2. a populated one, applied three times
+    store.write_text(
+        "*/5 * * * * ~/kenya-pulse/.venv-push/bin/python push_server.py --send-due\n"
+        "0 2 * * * /usr/bin/certbot renew --quiet\n")
+    for _ in range(3):
+        r = run()
+        assert r.returncode == 0, r.stderr
+    out = store.read_text()
+    lines = [l for l in out.splitlines() if l.strip()]
+    ok("running it three times leaves three collector entries, not nine",
+       out.count("kenya_pulse.py") == 3, str(out.count("kenya_pulse.py")))
+    ok("the push sender survives untouched", out.count("send-due") == 1)
+    ok("so does anything else already scheduled", out.count("certbot") == 1)
+    ok("exactly one timezone line", out.count("CRON_TZ=") == 1)
+
+    # 3. the placement that matters: a cron env line governs what follows it,
+    #    so anything already there must sit ABOVE it and keep its own hours.
+    tz_at = next(i for i, l in enumerate(lines) if l.startswith("CRON_TZ="))
+    certbot_at = next(i for i, l in enumerate(lines) if "certbot" in l)
+    coll_at = [i for i, l in enumerate(lines) if "kenya_pulse.py" in l]
+    ok("existing jobs sit above the timezone line, so their hours do not move",
+       certbot_at < tz_at, f"certbot at {certbot_at}, CRON_TZ at {tz_at}")
+    ok("and every collector line sits below it",
+       all(i > tz_at for i in coll_at), f"{coll_at} vs {tz_at}")
+
+    # 4. the entries themselves
+    fields = [l.split()[:5] for l in lines if "kenya_pulse.py" in l]
+    ok("each entry has five schedule fields",
+       all(len(f) == 5 for f in fields), str(fields))
+    ok("one runs every day", any(f[2:] == ["*", "*", "*"] for f in fields), str(fields))
+    ok("one runs weekly on a single weekday",
+       any(f[2] == "*" and f[4] in list("0123456") for f in fields), str(fields))
+    ok("nothing runs more than once a day",
+       all("/" not in f[0] and "/" not in f[1] for f in fields), str(fields))
+    ok("every entry calls the virtualenv, never a bare python3",
+       all(".venv/bin/python" in l for l in lines if "kenya_pulse.py" in l)
+       and not any("python3 kenya_pulse" in l for l in lines), out)
 
 print("\n── THE WATCHDOG STILL GUARDS SILENCE")
 state = {}

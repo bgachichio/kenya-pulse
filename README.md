@@ -178,7 +178,7 @@ npx vercel --prod
 
 ## Tests
 
-Eighteen suites, 549 assertions. Most run against the component mounted under
+Eighteen suites, 568 assertions. Most run against the component mounted under
 Node with no browser at all; the push work is checked three ways, because a
 notification that fails silently is worse than none, and the design tokens are
 read back out of a real browser rather than trusted.
