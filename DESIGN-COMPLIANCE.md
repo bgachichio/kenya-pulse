@@ -65,7 +65,7 @@ computed styles back in light, dark and at `xlarge`.
 
 The app predates design.md v1.1 and is one 2,000-line file with no build-time
 CSS. Moving it onto Tailwind and shadcn means rewriting every element and
-re-authoring 678 assertions against new markup, on an app that is live and
+re-authoring 680 assertions against new markup, on an app that is live and
 carries a daily notification people rely on. The gain is conformance; the cost
 is a rewrite and a real chance of regression.
 
@@ -106,6 +106,13 @@ buttons, the active tab, the toggle — where green does mean "act here".
   `useRipple` hook from §16.1 and a positioned overlay on every button.
 - **A move to Tailwind + shadcn** would close exception 1. The token layer is
   the prerequisite and it now exists.
+
+Closed since the last pass: the web manifest's `background_color` was
+`#F2F2F7`, an iOS system grey from no palette in this app, so the splash
+screen flashed a colour the app never paints. It is now `#F7FAF8`
+(`--md-surface`, the light page background), and `visual-check.mjs` reads both
+manifest colours back against the live tokens - not against literals - so a
+token that moves moves the test with it.
 
 ---
 

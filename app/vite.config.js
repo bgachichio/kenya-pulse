@@ -20,8 +20,13 @@ export default defineConfig({
       name: 'Kenya Pulse',
       short_name: 'Kenya Pulse',
       description: 'The Kenyan economy at a glance, and where money is being paid',
+      // The two colours the OS paints before a single token has loaded, so
+      // they are the only place a hex may be written outside index.css.
+      // theme_color is --md-primary; background_color is --md-surface in
+      // light, the colour the page itself paints - it was an iOS system
+      // grey, which flashed a colour the app never uses.
       theme_color: '#237352',
-      background_color: '#F2F2F7',
+      background_color: '#F7FAF8',
       display: 'standalone',
       orientation: 'portrait',
       start_url: '/',

@@ -66,6 +66,26 @@ ok('scale applied from storage', x.scale==='xlarge', x.scale);
 ok('root font grew', parseFloat(x.rootFont)>16, x.rootFont);
 ok('no horizontal overflow at xlarge', !x.overflow, `${x.sw} vs ${x.iw}`);
 await page.screenshot({path:'/tmp/kp-xlarge.png'});
+
+/* The manifest paints the splash before a stylesheet exists, so its two
+   colours are the only hexes outside index.css - and the only ones nothing
+   else can catch drifting. background_color was an iOS system grey, which
+   flashed a colour the app never uses. Both are read back against the live
+   tokens rather than against literals, so moving a token moves the test. */
+const manifest = await (await fetch(`${ORIGIN}/manifest.webmanifest`)).json();
+const tokens = await page.evaluate(()=>{
+  const root = getComputedStyle(document.documentElement);
+  const hex = n => root.getPropertyValue(n).trim().toUpperCase();
+  return { surface: hex('--md-surface'), primary: hex('--md-primary') };
+});
+console.log('── MANIFEST MATCHES THE TOKENS');
+ok('background_color is --md-surface',
+   (manifest.background_color||'').toUpperCase()===tokens.surface,
+   `${manifest.background_color} vs ${tokens.surface}`);
+ok('theme_color is --md-primary',
+   (manifest.theme_color||'').toUpperCase()===tokens.primary,
+   `${manifest.theme_color} vs ${tokens.primary}`);
+
 await b.close(); server.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);
