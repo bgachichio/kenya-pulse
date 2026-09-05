@@ -385,21 +385,58 @@ second, no downtime — Caddy serves whatever file is there.
 
 # PART B · The app
 
+Build from the same clean checkout Part A and C1 use. Copying single files out
+of `~/Downloads` was how this used to work, and it shipped a stale bundle
+without saying so: the copy covered `App.jsx` and `vite.config.js`, so anything
+else that changed was silently left behind, and a build from a tree that is not
+a checkout has no version to name.
+
+`.vercel/` holds the project link and is deliberately not in git. Carry it over
+once, from wherever you last deployed; after that the checkout deploys to the
+same project and the same alias on its own.
+
 ```bash
-cd ~/kenya-pulse/kenya-pulse-app
-cp ~/Downloads/files/kenya-pulse/app/src/App.jsx src/App.jsx
-cp ~/Downloads/files/kenya-pulse/app/vite.config.js .
+. ~/.kenya-pulse-env
+[ -d $SRC ] && git -C $SRC pull -q || git clone https://github.com/bgachichio/kenya-pulse $SRC
+[ -d $SRC/app/.vercel ] || cp -r ~/kenya-pulse/kenya-pulse-app/.vercel $SRC/app/.vercel
+
+cd $SRC/app
+git log --oneline -1
 wc -l src/App.jsx
+npm ci
 npm run build
-npx vercel --prod
 ```
 
-**You should see** `1946`, then `PWA v1.3.0` with `dist/sw.js` and
-`dist/manifest.webmanifest`, then `✓ Ready`.
+**You should see** the commit you expect to ship, then `2687`, then
+`PWA v1.3.0` with `dist/sw.js` and `dist/manifest.webmanifest`.
+
+Check the bundle before it goes out. The build prints its name, and a hash that
+does not match the one that was tested means the source is not the source that
+was tested — the reason to look is that a stale tree still builds, still
+deploys, and still reports success.
+
+```bash
+ls dist/assets/index-*.js
+grep -c "Share briefing" dist/assets/index-*.js
+grep -o '"background_color":"[^"]*"' dist/manifest.webmanifest
+```
+
+**You should see** `index-BYk6R2Yt.js`, then `1`, then `#F7FAF8`. If the bundle
+name differs, stop: `git -C $SRC log --oneline -1` against GitHub will say
+which commit you are actually on.
+
+```bash
+npx vercel --prod
+```
 
 Build stays on the Lenovo. The 1 GB VM OOMs on `npm install`.
 
 **Rollback:** `npx vercel rollback` — instant, atomic.
+
+The old `~/kenya-pulse/kenya-pulse-app` is not a checkout and never was, so
+`git pull` in it fails with *not a git repository*. Leave it in place — it is
+where `.vercel` comes from, and it may hold untracked files — but do not build
+from it again.
 
 ## On the Pixel
 
