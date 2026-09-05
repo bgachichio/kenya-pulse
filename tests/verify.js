@@ -6,10 +6,22 @@ function txt(n){let s='';walk(n,x=>(x.children||[]).forEach(c=>{if(typeof c==='s
 function collect(r,t){const o=[];walk(r,n=>{if(n.type===t)o.push(n)});return o;}
 const B=()=>collect(r.toJSON(),'button');
 const tab=n=>TR.act(()=>B().find(b=>(b.children||[]).join('')===n).props.onClick());
-function ladder(){const out={};walk(r.toJSON(),n=>{const t=txt(n);
-  // a stale rung renders an OLD badge between the label and the figure
-  const m=t.match(/^([A-Za-z0-9\- ]+?)(?:OLD)?([+\-][\d.]+)%$/);
-  if(m&&t.length<45)out[m[1].trim()]=parseFloat(m[2]);});return out;}
+/* A rung reads: label, an OLD badge when the rate is overdue, the advertised
+   rate, then what survives tax and inflation - "Top-quartile MMFOLD12.10%
+   gross+3.79% real". Both numbers are captured; the arithmetic below checks
+   the real one, and grossOf() lets the pairing itself be checked. */
+function rungs(){const out={};walk(r.toJSON(),n=>{const t=txt(n);
+  // The label must END in a letter. Requiring it to START with one dropped
+  // "10-year bond" and the three bills; allowing anything let a stray digit
+  // stand in as a label, because txt() collects a node's own strings before
+  // descending. Every real label ends in a word.
+  const m=t.match(/^([A-Za-z0-9][A-Za-z0-9\- ]*[A-Za-z])([\d.]+)% gross([+\-][\d.]+)% real$/);
+  // The label group ends in a letter, so it swallows the OLD badge when one is
+  // present ("Top-quartile MMFOLD"). No indicator label ends in OLD, so strip it.
+  if(m&&t.length<60)out[m[1].replace(/OLD$/,'').trim()]={gross:parseFloat(m[2]),real:parseFloat(m[3])};});
+  return out;}
+function ladder(){const o={};for(const[k,v]of Object.entries(rungs()))o[k]=v.real;return o;}
+function grossOf(){const o={};for(const[k,v]of Object.entries(rungs()))o[k]=v.gross;return o;}
 let pass=0,fail=0;
 const ok=(n,c,d='')=>{c?(pass++,console.log(`  ✓ ${n}`)):(fail++,console.log(`  ✗ ${n} ${d}`));};
 let r; TR.act(()=>{r=TR.create(React.createElement(App));});
@@ -25,6 +37,22 @@ ok('savings −3.67% (3.32 gross, 15% tax)', Math.abs(L['Bank savings account']+
 ok('cash −6.49% (= negative inflation)', Math.abs(L['Cash']+6.49)<0.01);
 ok('ranked high to low', L['Infrastructure bond']>L['Top-quartile MMF']
    && L['Top-quartile MMF']>L['Bank savings account'] && L['Bank savings account']>L['Cash']);
+
+/* Readers were taking the real figure for the advertised one, so both now sit
+   on the rung and the pairing is checked, not just the arithmetic. */
+let G=grossOf();
+/* Count first. A parser that quietly matches fewer rows still passes every
+   assertion about the rows it found, which is how coverage disappears. */
+ok('all ten rungs were read', Object.keys(L).length===10,
+   `${Object.keys(L).length}: ${Object.keys(L).join(', ')}`);
+ok('every rung shows its advertised rate too',
+   Object.keys(L).every(k=>typeof G[k]==='number'), JSON.stringify(G));
+ok('the infra bond advertises 12.80%', Math.abs(G['Infrastructure bond']-12.80)<0.01, String(G['Infrastructure bond']));
+ok('the MMF advertises 12.10%', Math.abs(G['Top-quartile MMF']-12.10)<0.01, String(G['Top-quartile MMF']));
+ok('gross always beats real, because tax and inflation only subtract',
+   Object.keys(L).every(k=>G[k]>=L[k]),
+   JSON.stringify(Object.keys(L).filter(k=>G[k]<L[k])));
+ok('cash advertises nothing at all', Math.abs(G['Cash'])<0.01, String(G['Cash']));
 
 console.log("\n── COST OF INACTION");
 let found=null;

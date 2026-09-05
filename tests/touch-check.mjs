@@ -243,6 +243,54 @@ for (const name of ['Pulse', 'Edge', 'Trends', 'Outlook', 'Data']) {
 ok('opening and closing rows across every tab raises nothing',
    errs.length === before, errs.slice(before).join(' | '));
 
+console.log('\n── THE BRIEFING GOES OUT AS A PICTURE TOO');
+/* A screenshot of a phone is what people actually send, and it is cropped,
+   in the wrong theme, undated and unattributed. The card fixes all four - but
+   only if a real canvas produces a real PNG, which nothing but a browser can
+   show. */
+await page.evaluate(() => {
+  window.__shared = null; window.__png = null;
+  navigator.canShare = () => true;
+  navigator.share = async d => {
+    const f = (d.files || [])[0];
+    window.__shared = { hasText: !!d.text, text: d.text, nFiles: (d.files || []).length,
+      name: f && f.name, type: f && f.type, size: f && f.size };
+    if (f) window.__png = await new Promise(r => {
+      const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f);
+    });
+  };
+});
+await tab(page, 'Edge').tap();
+await page.waitForTimeout(500);
+const shareBtn = page.locator('button[aria-label="Share briefing"]').first();
+ok('the briefing offers a share, not a copy', await shareBtn.count() === 1);
+await shareBtn.tap();
+await page.waitForTimeout(3500);
+const sh = await page.evaluate(() => window.__shared);
+ok('the device share sheet was opened', !!sh, 'never called');
+ok('an image went with it', sh && sh.nFiles === 1, JSON.stringify(sh));
+ok('it is a PNG', sh && sh.type === 'image/png', sh && sh.type);
+ok('with a name that says what it is and when',
+   sh && /^kenya-pulse-.*\d{4}\.png$/.test(sh.name), sh && sh.name);
+ok('and real pixels in it, not an empty canvas', sh && sh.size > 20000, sh && String(sh.size));
+ok('the text went too, so a target that ignores files still gets the briefing',
+   sh && sh.hasText);
+ok('the text is signed', sh && sh.text.includes('made by Brian Gachichio'));
+ok('the text carries the address', sh && sh.text.includes('https://kenyapulse.gachichio.org'));
+ok('and pairs gross with real', sh && /% gross -> [+-][\d.]+% real/.test(sh.text),
+   sh && (sh.text.match(/Best:.*/) || [''])[0]);
+
+const png = await page.evaluate(() => window.__png);
+const dims = await page.evaluate(src => new Promise(res => {
+  const i = new Image();
+  i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight });
+  i.onerror = () => res(null);
+  i.src = src;
+}), png);
+ok('the PNG decodes', !!dims, 'did not decode');
+ok('and is a sharable size, not a sliver',
+   dims && dims.w >= 1000 && dims.h >= 800, JSON.stringify(dims));
+
 console.log('\n── A MOUSE ON A DESKTOP');
 const dctx = await b.newContext({ viewport:{width:1280,height:900}, hasTouch:false });
 const dpage = await dctx.newPage();

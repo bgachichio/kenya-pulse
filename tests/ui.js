@@ -104,6 +104,39 @@ ok('dark mode renders', txt(rd.toJSON()).length>2000);
 W=360; let rn=fresh();
 ok('360px renders', txt(rn.toJSON()).length>2000);
 W=412;
+console.log('\n── GROSS BESIDE EVERY REAL RETURN');
+/* The reported confusion: readers took the headline for the advertised rate
+   and could not see that it was net of tax and inflation. Every place a real
+   return appears must now show the gross beside it and name which is which. */
+r=fresh();
+let hero=txt(r.toJSON());
+ok('the headline return is labelled real', /[+-][\d.]+%\s*real/.test(hero),
+   (hero.match(/[+-][\d.]+%[^.]{0,20}/)||[''])[0]);
+ok('and the gross rate sits with it', /[\d.]+% gross/.test(hero),
+   (hero.match(/[\d.]+% gross[^.]{0,40}/)||[''])[0]);
+ok('the hero names both deductions', /less [\d.]+% tax and [\d.]+% inflation/.test(hero),
+   (hero.match(/less .{0,44}/)||[''])[0]);
+
+go(r,'Edge');
+const edgeTxt=txt(r.toJSON());
+ok('the ladder explains gross before listing any',
+   /advertised rate/.test(edgeTxt) && /Gross/.test(edgeTxt), edgeTxt.slice(0,80));
+/* txt() gathers a node's own strings before descending, so the words inside
+   <strong> arrive after the sentence they sit in. Assert the phrases, not the
+   order they happen to be collected in. */
+ok('and explains real as what survives tax and inflation',
+   /withholding tax and [\d.]+% inflation/.test(edgeTxt)
+   && /the part that actually buys anything/.test(edgeTxt)
+   && /Real/.test(edgeTxt));
+const rungs=edgeTxt.match(/[\d.]+% gross/g)||[];
+ok('every rung shows a gross rate', rungs.length>=10, `${rungs.length} found`);
+const reals=edgeTxt.match(/[+-][\d.]+% real/g)||[];
+ok('and every rung labels its real one', reals.length>=10, `${reals.length} found`);
+ok('the rungs no longer repeat gross in the small print',
+   !/% gross · /.test(edgeTxt));
+ok('the small print says what tax and inflation each cost',
+   /% after tax · less [\d.]+% inflation/.test(edgeTxt));
+
 console.log('\n── DESIGN.MD v1.1 TYPE AND SHAPE');
 ok('no px font size anywhere', !/fontSize: *"[0-9.]+px"/.test(SRC),
    (SRC.match(/fontSize: *"[0-9.]+px"/g)||[]).join(','));

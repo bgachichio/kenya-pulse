@@ -1431,8 +1431,11 @@ def briefing(sig, ladder, breaks, call, asof):
          f"Fiscal    debt {f('debt_gdp')} of GDP",
          f"Global    Fed {f('fed_funds')}, US 10yr {f('us10y')}, SSA {f('ssa_gdp')}", ""]
     if ladder:
-        L.append("Best real return after tax: " +
-                 ", ".join(f"{r['label']} {r['real']:+.2f}%" for r in ladder[:3]))
+        # Gross beside real, because a reader who sees only the real figure
+        # takes it for the advertised rate and wonders why it looks so poor.
+        L.append("Best returns, gross then real after tax and inflation: " +
+                 ", ".join(f"{r['label']} {r['gross']:.2f}% -> {r['real']:+.2f}%"
+                           for r in ladder[:3]))
         stale = [r for r in ladder if r.get("stale")]
         if stale:
             L.append("Rates needing a refresh: " +
