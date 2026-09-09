@@ -57,8 +57,8 @@ console.log('\n── TYPOGRAPHY & PALETTE');
 /* design.md v1.1. The component file carries no colour of its own: every
    value resolves to a role token declared in index.css. */
 const CSS = fs.readFileSync(require('path').resolve(__dirname, '../app/src/index.css'), 'utf8');
-ok('no hex value in the component', !/#[0-9A-Fa-f]{6}/.test(SRC),
-   (SRC.match(/#[0-9A-Fa-f]{6}/g)||[]).slice(0,3).join(','));
+ok('no hex value in the component', !/#[0-9A-Fa-f]{3,8}\b/.test(SRC),
+   (SRC.match(/#[0-9A-Fa-f]{3,8}\b/g)||[]).slice(0,3).join(','));
 ok('no raw rgba in the component', !/rgba\(/.test(SRC));
 ok('colour comes from --md-* role tokens', (SRC.match(/var\(--md-/g)||[]).length > 10,
    String((SRC.match(/var\(--md-/g)||[]).length));

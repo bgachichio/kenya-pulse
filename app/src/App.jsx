@@ -1837,7 +1837,7 @@ export default function KenyaPulse() {
                 margin: "14px 0 0", color: c.dim }}>{brief}</pre>
               <button onClick={shareBriefing} disabled={sharing} className="kp-f kp-tap"
                 aria-label="Share briefing"
-                style={{ ...S.btn(copied ? c.good : c.cool, "#fff"), marginTop: 12 }}>
+                style={{ ...S.btn(copied ? c.good : c.cool, "var(--md-on-primary)"), marginTop: 12 }}>
                 {sharing ? "Preparing…" : copied ? "Copied" : "Share briefing"}
               </button>
             </Section>
@@ -2068,7 +2068,7 @@ export default function KenyaPulse() {
                           touchAction: "manipulation", WebkitTapHighlightColor: "transparent",
                           border: `1px solid ${trendKey === k ? c.good : c.line}`,
                           background: trendKey === k ? c.good : "transparent",
-                          color: trendKey === k ? "#fff" : c.dim,
+                          color: trendKey === k ? "var(--md-on-primary)" : c.dim,
                           fontSize: narrow ? "0.75rem" : "0.75rem",
                           fontWeight: trendKey === k ? 700 : 500,
                           transition: "background .2s, color .2s" }}>
@@ -2453,7 +2453,7 @@ export default function KenyaPulse() {
                                 cursor: "pointer", minHeight: 44, touchAction: "manipulation",
                                 border: `1px solid ${on ? c.good : c.line}`,
                                 background: on ? c.good : "transparent",
-                                color: on ? "#fff" : c.dim, fontWeight: on ? 600 : 500,
+                                color: on ? "var(--md-on-primary)" : c.dim, fontWeight: on ? 600 : 500,
                                 transition: "background .18s, color .18s" }}>
                               {l}
                             </button>
@@ -2510,7 +2510,7 @@ export default function KenyaPulse() {
                       style={{ padding: "6px 11px", minHeight: 44, borderRadius: "var(--r-sm)",
                         fontSize: "0.75rem", cursor: "pointer", touchAction: "manipulation",
                         border: `1px solid ${on ? c.good : c.line}`,
-                        background: on ? c.good : "transparent", color: on ? "#fff" : c.dim,
+                        background: on ? c.good : "transparent", color: on ? "var(--md-on-primary)" : c.dim,
                         fontWeight: on ? 600 : 500, transition: "background .18s, color .18s" }}>
                       {i.label}
                     </button>
@@ -2594,7 +2594,7 @@ function Toggle({ on, onChange, c }) {
         background: on ? c.good : c.chip,
         transition: "background .28s var(--ease-emphasized)" }}>
         <span style={{ position: "absolute", top: 2, left: 2, width: 27, height: 27,
-          borderRadius: "var(--r-full)", background: "#fff",
+          borderRadius: "var(--r-full)", background: "var(--md-on-primary)",
           transform: on ? "translateX(20px)" : "none",
           transition: "transform .28s var(--ease-emphasized)",
           boxShadow: "var(--md-elevation-2)" }} />
