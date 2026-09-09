@@ -107,15 +107,42 @@ W=412;
 console.log('\n── GROSS BESIDE EVERY REAL RETURN');
 /* The reported confusion: readers took the headline for the advertised rate
    and could not see that it was net of tax and inflation. Every place a real
-   return appears must now show the gross beside it and name which is which. */
+   return appears must now show the gross beside it and name which is which.
+   Later feedback: people read the gross figure first, so it now carries the
+   size - real stays right beneath it, signed, because the ladder still ranks
+   by it and it is still the number that matters for a decision. */
 r=fresh();
 let hero=txt(r.toJSON());
-ok('the headline return is labelled real', /[+-][\d.]+%\s*real/.test(hero),
+ok('the headline shows a real return, signed', /[+-][\d.]+%\s*real/.test(hero),
    (hero.match(/[+-][\d.]+%[^.]{0,20}/)||[''])[0]);
 ok('and the gross rate sits with it', /[\d.]+% gross/.test(hero),
    (hero.match(/[\d.]+% gross[^.]{0,40}/)||[''])[0]);
 ok('the hero names both deductions', /less [\d.]+% tax and [\d.]+% inflation/.test(hero),
    (hero.match(/less .{0,44}/)||[''])[0]);
+
+/* The size relationship itself, not just presence: find every node carrying
+   an explicit large font size and a "%" in its text, and confirm it is the
+   gross figure (unsigned) rather than the signed real one. */
+function bigPercentNodes(node){
+  const out=[];
+  walk(node,n=>{
+    const style=n.props&&n.props.style;
+    if(style&&typeof style.fontSize==='string'&&style.fontSize.endsWith('rem')){
+      const rem=parseFloat(style.fontSize);
+      const own=txt(n).trim();
+      // own text may carry a nested "gross"/"real" label after the figure,
+      // so match the leading number rather than requiring the string end in %.
+      if(rem>=1.8&&/^[\d.]+%/.test(own))out.push({text:own.match(/^[\d.]+%/)[0],rem});
+    }
+  });
+  return out;
+}
+const big=bigPercentNodes(r.toJSON());
+ok('the headline number is large', big.length>0, JSON.stringify(big));
+ok('and it is the gross figure, unsigned - not the real one',
+   big.length>0&&big.every(b=>!/^[+-]/.test(b.text)), JSON.stringify(big));
+ok('the signed real figure is not the large one',
+   !big.some(b=>/^[+-]/.test(b.text)));
 
 go(r,'Edge');
 const edgeTxt=txt(r.toJSON());

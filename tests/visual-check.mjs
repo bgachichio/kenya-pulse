@@ -26,7 +26,11 @@ for (const mode of ['light','dark']) {
   await page.waitForTimeout(1200);
   const m = await page.evaluate(()=>{
     const cs=getComputedStyle(document.body), root=getComputedStyle(document.documentElement);
-    const hero=[...document.querySelectorAll('span')].find(e=>/%$/.test(e.textContent||'')&&e.textContent.length<10);
+    // The hero number is now the big one, not the only one ending in "%" -
+    // gross carries a small nested "gross" label, so find it by the actual
+    // property under test: the largest percentage figure on the card.
+    const hero=[...document.querySelectorAll('span')].find(e=>
+      parseFloat(getComputedStyle(e).fontSize)>=28 && /^\d/.test((e.textContent||'').trim()));
     return { bg: cs.backgroundColor, fg: cs.color, family: cs.fontFamily,
       dark: document.documentElement.classList.contains('dark'),
       scale: document.documentElement.dataset.fontScale,
@@ -85,6 +89,27 @@ ok('background_color is --md-surface',
 ok('theme_color is --md-primary',
    (manifest.theme_color||'').toUpperCase()===tokens.primary,
    `${manifest.theme_color} vs ${tokens.primary}`);
+
+/* The lag this guards against: a font's file isn't fetched until the
+   browser discovers the @font-face rule while parsing CSS, well after first
+   paint. Preloading the one subset each face needs starts that fetch in
+   parallel with the HTML itself - but only if the tag survives the build and
+   still points at a file that exists, which is exactly what breaks silently
+   when a font package updates and the content hash moves. */
+console.log('── FONT PRELOAD');
+const html = await readFile(join(DIST, 'index.html'), 'utf8');
+const preloads = [...html.matchAll(/<link rel="preload" href="([^"]+)" as="font"[^>]*>/g)].map(m => m[1]);
+ok('exactly one preload per critical family', preloads.length === 2, JSON.stringify(preloads));
+ok('Inter is the latin subset, not latin-ext or another language',
+   preloads.some(h => /inter-latin-wght/.test(h)) && !preloads.some(h => /inter-latin-ext/.test(h)),
+   JSON.stringify(preloads));
+ok('Courier Prime is the latin subset', preloads.some(h => /courier-prime-latin-400/.test(h)),
+   JSON.stringify(preloads));
+for (const href of preloads) {
+  const res = await fetch(`${ORIGIN}${href}`);
+  ok(`${href.split('/').pop()} resolves to a real file, not a stale hash`,
+     res.ok && res.headers.get('content-type') === 'font/woff2', `${res.status} ${res.headers.get('content-type')}`);
+}
 
 await b.close(); server.close();
 console.log(`\n${pass} passed, ${fail} failed`);

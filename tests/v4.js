@@ -38,9 +38,13 @@ const src=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx
 ok('gone from source entirely', !/verdict|pulse >=/.test(src));
 
 console.log('\n── HERO IS THE ACTIONABLE FACT');
-ok('headline is best real return', t.includes('Best real return'));
+/* Renamed from "Best real return": the headline number is the advertised
+   (gross) rate now, since that is the one readers arrive looking for - "real"
+   would misdescribe what is actually printed large. */
+ok('headline is labelled best return', t.includes('Best return'));
 ok('names the instrument', t.includes('Infrastructure bond'));
-ok('shows +6.31%', t.includes('+6.31%'));
+ok('shows the gross rate, unsigned, as the big number', t.includes('12.80%'));
+ok('shows +6.31% real too, not just the gross figure', t.includes('+6.31%'));
 ok('quantifies the cost of cash', t.includes('128,000'), '');
 ok('in shillings on a million', /KES\s?128,000/.test(t.replace(/\s+/g,' ')), '');
 ok('hero stays compact, no redundant CTA', !txt(r.toJSON()).includes('See the ladder'));

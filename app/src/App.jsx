@@ -1589,27 +1589,30 @@ export default function KenyaPulse() {
           animation: "kp-rise .42s both var(--ease-emphasized)" }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 600, letterSpacing: ".02em",
             color: c.dim, padding: "0 16px 7px", textTransform: "uppercase" }}>
-            Best real return
+            Best return
           </div>
           <div style={{ background: c.card, borderRadius: "var(--r-lg)", padding: narrow ? 16 : 18,
             boxShadow: c.shadow }}>
             {best ? (
               <>
+                {/* Readers look at the advertised rate first, so that is the
+                    number carrying the size and the weight. Real - what
+                    survives tax and inflation - sits right beneath it,
+                    signed and coloured, because it is still the figure the
+                    ladder ranks by and the one that matters for a decision. */}
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8,
                   flexWrap: "wrap" }}>
                   <span style={{ fontSize: narrow ? "1.875rem" : "2.25rem", fontFamily: MONO, fontWeight: 600,
-                    color: vcol, letterSpacing: "-.045em", lineHeight: 1 }}>
-                    {best.real > 0 ? "+" : ""}{best.real.toFixed(2)}%
+                    color: c.ink, letterSpacing: "-.045em", lineHeight: 1 }}>
+                    {best.gross.toFixed(2)}%
+                    {" "}
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: c.dim }}>gross</span>
                   </span>
-                  {/* The word does the work. Readers were taking the headline for
-                      the advertised rate; it is what is left after tax and
-                      inflation, and the advertised rate sits beside it. */}
-                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: vcol }}>real</span>
                   <span style={{ fontSize: "0.875rem", fontWeight: 500 }}>{best.label}</span>
                 </div>
                 <div style={{ fontSize: "0.875rem", color: c.dim, marginTop: 8, lineHeight: 1.5 }}>
-                  <strong style={{ color: c.ink, fontWeight: 600 }}>
-                    {best.gross.toFixed(2)}% gross</strong>, less {best.taxPct}% tax
+                  <strong style={{ color: vcol, fontWeight: 600 }}>
+                    {best.real > 0 ? "+" : ""}{best.real.toFixed(2)}% real</strong>, less {best.taxPct}% tax
                   and {inflationRate.toFixed(2)}% inflation. Cash loses {Math.abs(worst.real).toFixed(2)}% -
                   a gap of <strong style={{ color: c.ink, fontWeight: 600 }}>
                   KES {Math.round(spread * 10000).toLocaleString("en-GB")}</strong> a year
@@ -1867,18 +1870,20 @@ export default function KenyaPulse() {
                               padding: "0 4px", opacity: .9 }}>OLD</span>}
                         </span>
                         {/* Both numbers, at the point of reading. The advertised
-                            rate first because that is the one a reader arrives
-                            with, then what is left of it. */}
+                            rate carries the size, because that is the one a
+                            reader arrives with; what is left of it sits right
+                            below, smaller but still signed and coloured. */}
                         <span style={{ textAlign: "right", whiteSpace: "nowrap",
                           flexShrink: 0 }}>
-                          <span style={{ fontSize: "0.75rem", color: c.faint }}>
-                            {r.gross.toFixed(2)}% gross
-                          </span>
                           <span style={{ display: "block", fontWeight: 600,
-                            color: pos ? c.good : c.bad, fontSize: "1rem" }}>
-                            {r.real > 0 ? "+" : ""}{r.real.toFixed(2)}%
+                            color: c.ink, fontSize: "1rem" }}>
+                            {r.gross.toFixed(2)}%
                             {" "}
-                            <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>real</span>
+                            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: c.faint }}>gross</span>
+                          </span>
+                          <span style={{ fontSize: "0.75rem", fontWeight: 600,
+                            color: pos ? c.good : c.bad }}>
+                            {r.real > 0 ? "+" : ""}{r.real.toFixed(2)}% real
                           </span>
                         </span>
                       </div>

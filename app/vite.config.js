@@ -2,8 +2,41 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+/* A font isn't visible the moment its <link> stylesheet loads - the browser
+   only starts fetching a @font-face's file once it discovers that rule while
+   parsing CSS, which is well after the first paint. That gap is the lag: the
+   page opens in a fallback face and swaps mid-read.
+
+   Fontsource ships nine files split by subset (Cyrillic, Greek, Vietnamese,
+   Latin, Latin Extended...) so every character in this English-language app
+   comes from the "latin" file alone - confirmed against the punctuation the
+   app actually uses (middle dot, en/em dash, ellipsis, arrows, minus sign).
+   Preloading just those two - one per family - starts the fetch in parallel
+   with the HTML itself, so the swap is done before anyone would notice it. */
+function preloadCriticalFonts() {
+  return {
+    name: 'preload-critical-fonts',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, { bundle }) {
+        if (!bundle) return html
+        const pick = needle => Object.keys(bundle)
+          .find(f => f.includes(needle) && f.endsWith('.woff2'))
+        const files = [
+          pick('inter-latin-wght-normal'),
+          pick('courier-prime-latin-400-normal'),
+        ].filter(Boolean)
+        const links = files
+          .map(f => `  <link rel="preload" href="/${f}" as="font" type="font/woff2" crossorigin>`)
+          .join('\n')
+        return links ? html.replace('</head>', `${links}\n  </head>`) : html
+      }
+    }
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), VitePWA({
+  plugins: [react(), preloadCriticalFonts(), VitePWA({
     /* injectManifest, not generateSW: the push and notification-tap handlers
        live in src/sw.js and a generated worker has nowhere to put them. */
     strategies: 'injectManifest',
