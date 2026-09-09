@@ -401,19 +401,24 @@ same project and the same alias on its own.
 [ -d $SRC/app/.vercel ] || cp -r ~/kenya-pulse/kenya-pulse-app/.vercel $SRC/app/.vercel
 
 cd $SRC/app
-git log --oneline -1
-wc -l src/App.jsx
+git fetch -q origin main
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
+  && echo "on origin/main: $(git log --oneline -1)" \
+  || echo "STALE - not on origin/main, stop and re-pull"
 npm ci
 npm run build
 ```
 
-**You should see** the commit you expect to ship, then `2687`, then
-`PWA v1.3.0` with `dist/sw.js` and `dist/manifest.webmanifest`.
+**You should see** `on origin/main: <the commit you expect to ship>`, then
+`PWA v1.3.0` with `dist/sw.js` and `dist/manifest.webmanifest`. `wc -l
+src/App.jsx` is not worth checking - it changes every edit, so a fixed number
+here goes stale by definition and did exactly that the last time this file
+named one.
 
-Check the bundle before it goes out. The build prints its name, and a hash that
-does not match the one that was tested means the source is not the source that
-was tested — the reason to look is that a stale tree still builds, still
-deploys, and still reports success.
+Check the bundle before it goes out. Its filename is a fresh hash every
+build, so nothing here names one - what's checked is that the *content* is
+current: the feature this session shipped, and the background colour
+design.md specifies, not whatever a previous deploy happened to print.
 
 ```bash
 ls dist/assets/index-*.js
@@ -421,9 +426,9 @@ grep -c "Share briefing" dist/assets/index-*.js
 grep -o '"background_color":"[^"]*"' dist/manifest.webmanifest
 ```
 
-**You should see** `index-BYk6R2Yt.js`, then `1`, then `#F7FAF8`. If the bundle
-name differs, stop: `git -C $SRC log --oneline -1` against GitHub will say
-which commit you are actually on.
+**You should see** one `.js` file, then `1`, then `#F7FAF8`. A `0` on the
+second line means the build is older than expected - re-check the first
+step's commit against what you meant to ship.
 
 ```bash
 npx vercel --prod
