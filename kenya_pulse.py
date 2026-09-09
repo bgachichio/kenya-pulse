@@ -1419,32 +1419,93 @@ def score(values, prov, hist, carried):
     return out
 
 
-def briefing(sig, ladder, breaks, call, asof):
+def _esc(text):
+    """Telegram's HTML parse mode rejects the whole message on a stray
+    unescaped '<', '>' or '&' - a hand-typed row in the input sheet is the
+    one piece of this message that is not written by us, so it is the one
+    piece that gets escaped before it can silently kill the alert."""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _trend(entry):
+    """One glyph after a reading: which way it moved since the last check,
+    against the *previous run*, not a fixed calendar period - so on a weekly
+    collection cadence this is a genuine week-over-week signal. Silent when
+    nothing moved, so a page of arrows does not bury the two that matter."""
+    delta = entry.get("delta") if entry else None
+    if not delta:
+        return ""
+    return " ▲" if delta > 0 else " ▼"
+
+
+def briefing(sig, ladder, breaks, chain, asof):
+    """The Telegram alert. Every field below is already computed elsewhere in
+    this file for the app - delta, the transmission chain, the percentile
+    range behind each break - so this reads it, it does not recompute it.
+
+    Same length as the version it replaced, deliberately: the budget did not
+    grow, the content per word did. A trend arrow costs one character where
+    the old version cost nothing and said nothing. The two paragraphs this
+    used to spend restating "returns are positive" and "the chain hasn't
+    moved" now cite the one break and the one link actually worth naming,
+    with the reasoning already written for them in BREAK_SPECS and CHAIN,
+    which the old version computed and then never printed."""
     g = {s["id"]: s for s in sig}
-    f = lambda i: f"{g[i]['value']:g}{g[i]['unit']}" if i in g else "—"
-    L = [f"KENYA PULSE — {asof}", "",
-         f"Policy    CBR {f('cbr')}, KESONIA {f('kesonia')}, 91-day {f('tbill')}",
-         f"Prices    inflation {f('inflation')}",
-         f"Banking   lending {f('lending')}, deposit {f('deposit')}, NPLs {f('npl')}",
-         f"External  KES/USD {f('kes_usd')}, reserves {f('reserves')}",
-         f"Markets   NASI {f('nasi')}, cap {f('mktcap')}",
-         f"Fiscal    debt {f('debt_gdp')} of GDP",
-         f"Global    Fed {f('fed_funds')}, US 10yr {f('us10y')}, SSA {f('ssa_gdp')}", ""]
+
+    def f(i):
+        s = g.get(i)
+        return f"{s['value']:g}{s['unit']}{_trend(s)}" if s else "—"
+
+    L = [f"<b>KENYA PULSE — {asof}</b>", "",
+         f"<b>Policy</b>    CBR {f('cbr')}, KESONIA {f('kesonia')}, 91-day {f('tbill')}",
+         f"<b>Prices</b>    inflation {f('inflation')}",
+         f"<b>Banking</b>   lending {f('lending')}, deposit {f('deposit')}, NPLs {f('npl')}",
+         f"<b>External</b>  KES/USD {f('kes_usd')}, reserves {f('reserves')}",
+         f"<b>Markets</b>   NASI {f('nasi')}, cap {f('mktcap')}",
+         f"<b>Fiscal</b>    debt {f('debt_gdp')} of GDP",
+         f"<b>Global</b>    Fed {f('fed_funds')}, US 10yr {f('us10y')}, SSA {f('ssa_gdp')}", ""]
+
     if ladder:
-        # Gross beside real, because a reader who sees only the real figure
-        # takes it for the advertised rate and wonders why it looks so poor.
-        L.append("Best returns, gross then real after tax and inflation: " +
-                 ", ".join(f"{r['label']} {r['gross']:.2f}% -> {r['real']:+.2f}%"
-                           for r in ladder[:3]))
+        beating = sum(1 for r in ladder if r["real"] > 0)
+        L.append("<b>Returns</b>, gross → real after tax and inflation "
+                  f"({beating} of {len(ladder)} beat inflation):")
+        L.append(", ".join(f"{r['label']} {r['gross']:.2f}%→{r['real']:+.2f}%"
+                            for r in ladder[:3]))
         stale = [r for r in ladder if r.get("stale")]
         if stale:
-            L.append("Rates needing a refresh: " +
-                     ", ".join(r["label"] for r in stale[:4]))
+            L.append("Needs a refresh: " + ", ".join(r["label"] for r in stale[:3]))
+        L.append("")
+
+    # The percentile range and the reasoning are already computed per break
+    # (build_breaks); the old version discarded both and printed the bare
+    # number. First sentence only - the full paragraph is for the app.
     off = [b for b in breaks if b["state"] != "normal"]
     if off:
-        L.append("Off their range: " +
-                 ", ".join(f"{b['name']} {b['value']}{b['unit']}" for b in off[:3]))
-    L += ["", call]
+        lead = off[0]
+        why = lead["reading"].split(". ")[0].rstrip(".") + "."
+        L.append(f"<b>Off range</b> {lead['name']} {lead['value']}{lead['unit']} "
+                  f"(usual {lead['normalLo']}–{lead['normalHi']}{lead['unit']}) — {why}")
+        extra = off[1:3]
+        if extra:
+            L.append("Also: " + ", ".join(f"{b['name']} {b['value']}{b['unit']}"
+                                           for b in extra))
+        L.append("")
+
+    # One link, not all five: the single next thing to watch, with the
+    # mechanism already written for it in CHAIN rather than a bare list of
+    # names nobody outside this file can place in the transmission story.
+    still = [c for c in chain if c["status"] == "still"]
+    if still:
+        lead = still[0]
+        L.append(f"<b>Outlook</b> {lead['label'].lower()} hasn't followed policy "
+                  f"yet — {lead['why'].lower()}; ~{lead['lagMonths']}mo typical lag.")
+    else:
+        waiting = [c for c in chain if c["status"] == "waiting"]
+        if waiting:
+            need = 3 - max((c["readings"] for c in waiting), default=0)
+            L.append(f"<b>Outlook</b> transmission chain needs {need} more reading"
+                      f"{'s' if need != 1 else ''} before it can show movement.")
+
     return "\n".join(L)
 
 
@@ -1826,13 +1887,23 @@ SHEET_URL = os.environ.get("KP_SHEET_URL", "").strip()
 
 
 def notify(text):
+    """HTML parse mode for the bold section labels in briefing(); Telegram
+    rejects the whole message on malformed markup, so a bad send falls back
+    to plain text once rather than losing the alert outright."""
     if DRY or not (TG_TOKEN and TG_CHAT):
         log("  telegram skipped"); return
+    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
-        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                      json={"chat_id": TG_CHAT, "text": text,
-                            "disable_web_page_preview": True}, timeout=15)
-        log("  telegram sent")
+        r = requests.post(url, json={"chat_id": TG_CHAT, "text": text,
+                                      "parse_mode": "HTML",
+                                      "disable_web_page_preview": True}, timeout=15)
+        if r.status_code == 400:
+            plain = re.sub(r"<[^>]+>", "", text)
+            r = requests.post(url, json={"chat_id": TG_CHAT, "text": plain,
+                                          "disable_web_page_preview": True}, timeout=15)
+            log(f"  telegram sent (plain text, HTML rejected: {r.status_code})")
+        else:
+            log("  telegram sent")
     except Exception as e:
         log(f"  telegram FAILED: {e}")
 
@@ -1943,7 +2014,7 @@ def main():
                "sourcesLive": sorted(k for k, d in by_source.items()
                                      if any(not x.startswith("_") for x in d)),
                "cbkDates": by_source.get("cbk", {}).get("_dates", {}),
-               "briefing": briefing(signals, ladder, breaks, call, asof),
+               "briefing": briefing(signals, ladder, breaks, chain, asof),
                "runSeconds": round(time.time() - t0, 1)}
 
     if DRY:
@@ -1999,7 +2070,11 @@ def main():
 
     alerts = []
     if sheet_problems:
-        alerts.append("Problems in the input sheet: " + "; ".join(sheet_problems))
+        # Free text someone typed into a cell, not a label this file wrote -
+        # the one thing in this message that has to be escaped, since HTML
+        # parse mode drops the whole alert on an unescaped "<" or "&".
+        alerts.append("Problems in the input sheet: "
+                      + "; ".join(_esc(p) for p in sheet_problems))
     if frozen:
         alerts.append(f"⚠ Readings have not changed in {frozen} days. The collector may "
                       f"have stopped, or a source has gone quiet.")

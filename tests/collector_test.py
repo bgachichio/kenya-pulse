@@ -693,6 +693,109 @@ with tempfile.TemporaryDirectory() as tmp:
     ok("compact runs monthly, not yearly",
        any(f[3] == "*" and f[2] == "1" for f in fields), str(fields))
 
+print("\n── THE TELEGRAM ALERT SAYS SOMETHING, NOT JUST SOMETHING HAPPENED")
+
+
+def _sig(id_, value, unit, delta=None):
+    return {"id": id_, "label": id_, "value": value, "unit": unit, "delta": delta}
+
+
+sig_rich = [
+    _sig("cbr", 8.75, "%", 0.0), _sig("kesonia", 8.7507, "%", 0.0043),
+    _sig("tbill", 8.7687, "%", 0.02), _sig("inflation", 6.6, "%", 0.2),
+    _sig("lending", 14.39, "%", 0.0), _sig("deposit", 6.93, "%", 0.01),
+    _sig("npl", 14.6, "%", 0.0), _sig("kes_usd", 129.43, "", 0.05),
+    _sig("reserves", 12.394, "$bn", -0.12), _sig("nasi", 248.98, "", -2.05),
+    _sig("mktcap", 4178.45, " KES bn", 30.5), _sig("debt_gdp", 69.9, "%", 0.0),
+    _sig("fed_funds", 3.63, "%", 0.0), _sig("us10y", 4.78, "%", 0.01),
+    _sig("ssa_gdp", 4.3, "%", 0.0),
+]
+ladder_rich = [
+    {"label": "Infrastructure bond", "gross": 12.80, "real": 5.47, "stale": False},
+    {"label": "10-year bond", "gross": 13.45, "real": 5.21, "stale": False},
+    {"label": "Top-quartile MMF", "gross": 12.10, "real": 2.49, "stale": True},
+    {"label": "91-day bill", "gross": 8.77, "real": 0.3, "stale": False},
+    {"label": "Cash", "gross": 0, "real": -6.60, "stale": False},
+]
+# 7 of these beat inflation, matching the count asserted below.
+ladder_rich += [{"label": f"instrument {n}", "gross": 9.0, "real": 0.4, "stale": False}
+                for n in range(4)]
+ladder_rich += [{"label": f"loser {n}", "gross": 4.0, "real": -1.0, "stale": False}
+                for n in range(1)]
+breaks_rich = [
+    {"name": "Bank margin over policy", "value": 5.64, "unit": "pp",
+     "normalLo": 3.5, "normalHi": 5.5, "state": "high",
+     "reading": "Banks are holding spreads wide while policy eases. Transmission "
+                "is incomplete, so more of the cut has yet to reach borrowers."},
+]
+chain_rich = [
+    {"id": "cbr", "label": "Policy rate", "lagMonths": 0, "why": "The MPC decides",
+     "status": "moved", "readings": 10},
+    {"id": "lending", "label": "Lending rate", "lagMonths": 5,
+     "why": "Banks reprice slowly and downward last", "status": "still", "readings": 10},
+    {"id": "gdp", "label": "GDP growth", "lagMonths": 11,
+     "why": "Activity follows the cost of borrowing, at a long remove",
+     "status": "still", "readings": 10},
+]
+
+out = kp.briefing(sig_rich, ladder_rich, breaks_rich, chain_rich, "2026-09-09")
+ok("every section is labelled in bold, and every tag closes",
+   out.count("<b>") == 11 and out.count("<b>") == out.count("</b>"),
+   f"{out.count(chr(60)+'b'+chr(62))} open, {out.count('</b>')} close")
+ok("a rising reading gets an up arrow", "8.7507% ▲" in out, out)
+ok("an unchanged reading gets no arrow at all",
+   "8.75% ▲" not in out and "8.75% ▼" not in out, out)
+ok("a falling reading gets a down arrow", "12.394$bn ▼" in out, out)
+ok("the beat-inflation count is stated once, not twice as two paragraphs used to",
+   "8 of 10 beat inflation" in out and out.count("beat inflation") == 1, out)
+ok("the off-range line carries the mechanism, not just the number",
+   "holding spreads wide while policy eases" in out, out)
+ok("but only the first sentence of it - the rest is the app's job",
+   "more of the cut has yet to reach borrowers" not in out, out)
+ok("the percentile range sits next to the number", "usual 3.5–5.5pp" in out, out)
+ok("outlook names the specific lagging link, not a bare list of five",
+   "lending rate hasn't followed policy" in out.lower(), out)
+ok("and carries its own lag, read from CHAIN, not invented",
+   "~5mo typical lag" in out, out)
+ok("gdp growth is not named - one link is the point of the section, not five",
+   "gdp growth" not in out.lower(), out)
+words = len(out.split())
+ok("same order of length as the message it replaced (122 words), not longer",
+   words <= 145, f"{words} words")
+
+thin = kp.briefing([_sig("cbr", 8.75, "%", None)], [], [], [], "2026-01-01")
+ok("a bare first run - no history, no ladder, no breaks - does not crash",
+   "KENYA PULSE" in thin, thin)
+ok("and shows no arrow when there is nothing yet to compare against",
+   "▲" not in thin and "▼" not in thin, thin)
+
+ok("a hand-typed sheet problem cannot break the alert's HTML",
+   kp._esc("<script>&x</script>") == "&lt;script&gt;&amp;x&lt;/script&gt;",
+   kp._esc("<script>&x</script>"))
+
+
+class _FakeResp:
+    def __init__(self, code):
+        self.status_code = code
+
+
+kp.DRY, kp.TG_TOKEN, kp.TG_CHAT = False, "t", "c"
+
+sent = []
+kp.requests.post = lambda url, json=None, timeout=None: (sent.append(json), _FakeResp(200))[1]
+kp.notify("<b>hi</b>")
+ok("a normal send posts once, in HTML parse mode",
+   len(sent) == 1 and sent[0]["parse_mode"] == "HTML", sent)
+
+sent.clear()
+codes = iter([400, 200])
+kp.requests.post = lambda url, json=None, timeout=None: (sent.append(json), _FakeResp(next(codes)))[1]
+kp.notify("<b>hi</b> <script>")
+ok("a send Telegram rejects retries once, in plain text with the tags stripped",
+   len(sent) == 2 and "parse_mode" not in sent[1] and "<b>" not in sent[1]["text"], sent)
+
+kp.DRY = True
+
 print("\n── THE WATCHDOG STILL GUARDS SILENCE")
 state = {}
 ok("a first run records the shape", kp.watchdog({"a": 1}, state) is None)
