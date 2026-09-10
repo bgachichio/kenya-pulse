@@ -508,6 +508,13 @@ const T = {
   labelSm:    { fontSize: "0.6875rem", lineHeight: "1rem",    fontWeight: 500, letterSpacing: "0.016em" },
 };
 
+/* Justified prose, not centred labels or numbers - only where text actually
+   wraps across more than one line. textAlignLast keeps a short final line
+   from stretching to fill the column, which is what makes browser justify
+   look amateurish without it; hyphens gives the line-breaker a long word to
+   split rather than one big gap (the page already declares lang="en"). */
+const PROSE = { textAlign: "justify", textAlignLast: "left", hyphens: "auto" };
+
 /* design.md 12.2 */
 const SCALES = [["compact", "S"], ["default", "M"], ["large", "L"], ["xlarge", "XL"]];
 
@@ -1055,7 +1062,7 @@ function Steps({ title, steps, c, lead }) {
       <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: c.ink, marginBottom: 6 }}>
         {title}{lead ? " · your device" : ""}
       </div>
-      <ol style={{ margin: 0, paddingLeft: 20, color: c.dim, fontSize: "0.8125rem",
+      <ol style={{ ...PROSE, margin: 0, paddingLeft: 20, color: c.dim, fontSize: "0.8125rem",
         lineHeight: 1.6 }}>
         {steps.map((t, i) => <li key={i} style={{ marginBottom: 3 }}>{t}</li>)}
       </ol>
@@ -1109,7 +1116,7 @@ function HowTo({ c, plat, installed, open, onToggle }) {
               This is the installed app, so the first part is already done.
             </div>
           ) : (
-            <div style={{ fontSize: "0.8125rem", color: c.dim, marginBottom: 16,
+            <div style={{ ...PROSE, fontSize: "0.8125rem", color: c.dim, marginBottom: 16,
               lineHeight: 1.6 }}>
               Installing is worth the thirty seconds: it opens without the browser
               bars, works offline, and on an iPhone it is the only way the daily
@@ -1610,7 +1617,7 @@ export default function KenyaPulse() {
                   </span>
                   <span style={{ fontSize: "0.875rem", fontWeight: 500 }}>{best.label}</span>
                 </div>
-                <div style={{ fontSize: "0.875rem", color: c.dim, marginTop: 8, lineHeight: 1.5 }}>
+                <div style={{ ...PROSE, fontSize: "0.875rem", color: c.dim, marginTop: 8, lineHeight: 1.5 }}>
                   <strong style={{ color: vcol, fontWeight: 600 }}>
                     {best.real > 0 ? "+" : ""}{best.real.toFixed(2)}% real</strong>, less {best.taxPct}% tax
                   and {inflationRate.toFixed(2)}% inflation. Cash loses {Math.abs(worst.real).toFixed(2)}% -
@@ -1654,7 +1661,7 @@ export default function KenyaPulse() {
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 2, lineHeight: 1.45 }}>
+            <div style={{ ...PROSE, fontSize: "0.75rem", color: c.faint, marginTop: 2, lineHeight: 1.45 }}>
               {stressed.length
                 ? <>{stressed.length} under pressure
                   {offRange.length > 0 && `, ${offRange.length} off range`}</>
@@ -1817,7 +1824,7 @@ export default function KenyaPulse() {
             {/* Said once, at the bottom, rather than on every row: the line and
                 the colour answer different questions, and a reader who assumes
                 they answer the same one will misread half the list. */}
-            <div style={{ fontSize: "0.75rem", color: c.faint, lineHeight: 1.5,
+            <div style={{ ...PROSE, fontSize: "0.75rem", color: c.faint, lineHeight: 1.5,
               padding: "0 4px", marginTop: 4 }}>
               The line shows the levels a figure has taken, so a rate that sits
               still adds no new point to it. The number beneath each value is the
@@ -1831,7 +1838,7 @@ export default function KenyaPulse() {
           {/* ================= EDGE ================= */}
           {tab === "edge" && <>
             <Section title="Briefing" c={c} i={0} pad={narrow ? 16 : 18}>
-              <div style={{ fontSize: "0.875rem", lineHeight: 1.52, color: c.ink }}>{data.call}</div>
+              <div style={{ ...PROSE, fontSize: "0.875rem", lineHeight: 1.52, color: c.ink }}>{data.call}</div>
               <pre style={{ fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
                 fontSize: "0.75rem", lineHeight: 1.6, whiteSpace: "pre-wrap",
                 margin: "14px 0 0", color: c.dim }}>{brief}</pre>
@@ -2219,7 +2226,7 @@ export default function KenyaPulse() {
                   {data.source === "seed" ? "seeded" : "live"}
                 </Pill>
               </div>
-              <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 12, lineHeight: 1.5 }}>
+              <div style={{ ...PROSE, fontSize: "0.875rem", color: c.dim, marginBottom: 12, lineHeight: 1.5 }}>
                 Readings sync automatically each time the app opens.
               </div>
               {sync.msg && <div style={{ fontSize: "0.875rem", marginBottom: 12,
@@ -2316,7 +2323,7 @@ export default function KenyaPulse() {
             </Section>
 
             <Section title="On this device" c={c} i={4} pad={narrow ? 16 : 18}>
-              <div style={{ fontSize: "0.875rem", color: c.dim, lineHeight: 1.5 }}>
+              <div style={{ ...PROSE, fontSize: "0.875rem", color: c.dim, lineHeight: 1.5 }}>
                 Your settings live on this device only, and no account is needed. Nothing
                 is sent anywhere unless you switch the daily notification on, which needs
                 an address to send to.
@@ -2398,14 +2405,14 @@ export default function KenyaPulse() {
 
             <div style={{ ...S.eyebrow, margin: "26px 0 14px", color: c.good }}>Daily notification</div>
             {pushCap === "install-first" ? (
-              <div style={{ fontSize: "0.875rem", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
+              <div style={{ ...PROSE, fontSize: "0.875rem", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
                 Add Kenya Pulse to your home screen first - the share button in Safari,
                 then <strong style={{ color: c.dim, fontWeight: 600 }}>Add to Home Screen</strong>.
                 Open it from there and this setting appears. iPhones only deliver
                 notifications to an installed app.
               </div>
             ) : pushCap === "unsupported" ? (
-              <div style={{ fontSize: "0.875rem", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
+              <div style={{ ...PROSE, fontSize: "0.875rem", color: c.faint, marginBottom: 24, lineHeight: 1.5 }}>
                 This browser cannot receive notifications. Chrome, Edge and Firefox can, as
                 can an iPhone once the app is on the home screen.
               </div>
@@ -2423,7 +2430,7 @@ export default function KenyaPulse() {
                   </div>
                 )}
                 {noteState.msg && (
-                  <div style={{ fontSize: "0.875rem", marginBottom: 24, lineHeight: 1.5,
+                  <div style={{ ...PROSE, fontSize: "0.875rem", marginBottom: 24, lineHeight: 1.5,
                     color: noteState.state === "err" ? c.bad
                       : noteState.state === "ok" ? c.good : c.dim }}>
                     {noteState.msg}
@@ -2461,7 +2468,7 @@ export default function KenyaPulse() {
                         })}
                       </div>
                     </Row>
-                    <div style={{ fontSize: "0.875rem", color: c.dim, marginTop: -12,
+                    <div style={{ ...PROSE, fontSize: "0.875rem", color: c.dim, marginTop: -12,
                       marginBottom: 24, lineHeight: 1.5 }}>
                       {whenPhrase(nextBriefing(cfg.notifyTime, cfg.notifyDays, now), now)}
                       {" "}A time that has already passed today waits until its next day.
@@ -2519,7 +2526,7 @@ export default function KenyaPulse() {
               </div>
             </Row>
 
-            <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 20, lineHeight: 1.6 }}>
+            <div style={{ ...PROSE, fontSize: "0.75rem", color: c.faint, marginTop: 20, lineHeight: 1.6 }}>
               Settings are stored on this device only, and no account is needed. The daily
               notification is the one exception: switching it on sends this device's
               notification address, your chosen time and days, and your timezone to the
@@ -2548,7 +2555,7 @@ function Section({ title, note, children, c, i = 0, pad = 16, style }) {
         {children}
       </div>
       {note && (
-        <div style={{ fontSize: "0.75rem", color: c.faint, padding: "8px 16px 0",
+        <div style={{ ...PROSE, fontSize: "0.75rem", color: c.faint, padding: "8px 16px 0",
           lineHeight: 1.45 }}>{note}</div>
       )}
     </div>
@@ -2562,7 +2569,7 @@ function Row({ label, hint, children, c }) {
       <div style={{ fontWeight: 500, marginBottom: hint ? 3 : 10, fontSize: "0.875rem",
         letterSpacing: "-.012em" }}>{label}</div>
       {hint && <div style={{ fontSize: "0.75rem", color: c.faint, marginBottom: 8,
-        lineHeight: 1.45 }}>{hint}</div>}
+        ...PROSE, lineHeight: 1.45 }}>{hint}</div>}
       {children}
     </div>
   );

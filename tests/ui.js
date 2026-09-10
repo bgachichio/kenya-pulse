@@ -60,6 +60,17 @@ const CSS = fs.readFileSync(require('path').resolve(__dirname, '../app/src/index
 ok('no hex value in the component', !/#[0-9A-Fa-f]{3,8}\b/.test(SRC),
    (SRC.match(/#[0-9A-Fa-f]{3,8}\b/g)||[]).slice(0,3).join(','));
 ok('no raw rgba in the component', !/rgba\(/.test(SRC));
+
+/* Wrapping prose is justified across the app - the settings copy, the hero
+   subline, every Section's footnote - so text reads with a clean edge on
+   both sides instead of a mobile-narrow ragged right. Counted, not spot-
+   checked: a threshold catches most of the sites being silently reverted
+   without being so exact that removing one legitimate use fails the run. */
+const proseSites = (SRC.match(/\.\.\.PROSE/g)||[]).length;
+ok('prose is justified across the app, not just one spot', proseSites >= 12,
+   `only ${proseSites} sites`);
+ok('the preformatted briefing text is not justified - it would break the layout',
+   !/whiteSpace: "pre-wrap"[^}]*PROSE|PROSE[^}]*whiteSpace: "pre-wrap"/.test(SRC));
 ok('colour comes from --md-* role tokens', (SRC.match(/var\(--md-/g)||[]).length > 10,
    String((SRC.match(/var\(--md-/g)||[]).length));
 ok('UI face is Inter', /--font-ui: 'Inter Variable'/.test(CSS));
