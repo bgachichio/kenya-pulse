@@ -185,8 +185,9 @@ ok('cards take the 20px shape token', SRC.includes('var(--r-lg)') && CSS.include
 ok('sheet takes the 28px token', SRC.includes('var(--r-xl)') && CSS.includes('--r-xl: 28px'));
 ok('four font-size steps', ['compact','default','large','xlarge']
    .every((n,i,a)=>SRC.includes(`"${n}"`) && (i===0||SRC.indexOf(`"${n}"`)>SRC.indexOf(`"${a[i-1]}"`))));
-ok('no em dash in interface copy',
-   !SRC.split('\n').filter(l=>!/^\s*(\*|\/\*|\/\/)/.test(l)).join('\n').includes('\u2014'));
+ok('no em dash in interface copy, literal or escaped',
+   (()=>{const body=SRC.split('\n').filter(l=>!/^\s*(\*|\/\*|\/\/)/.test(l)).join('\n');
+     return !body.includes('\u2014') && !body.includes('\\u2014');})());
 
 console.log(`\n${'═'.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(50)}`);
 

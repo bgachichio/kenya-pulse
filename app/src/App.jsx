@@ -574,7 +574,7 @@ const SEED = {
       value: 8.75, prior: 9.0, priorLabel: "December", asOf: "8 Apr 2026", src: "CBK",
       hist: [10.75,10.25,10,9.75,9.5,9.25,9,8.75,8.75,8.75,8.75],
       what: "The rate the Central Bank charges banks to borrow overnight.",
-      why: "It is the anchor every other rate in the country is priced off. When it falls, loans eventually get cheaper and savings eventually pay less \u2014 eventually being the operative word.",
+      why: "It is the anchor every other rate in the country is priced off. When it falls, loans eventually get cheaper and savings eventually pay less - eventually being the operative word.",
       note: "Fourth straight hold, the longest pause since 2020. Next meeting October." },
     { id: "kesonia", label: "KESONIA overnight", group: "Policy", unit: "%", dir: 0,
       value: 8.7494, prior: 8.71, priorLabel: "a week ago", asOf: "14 Aug 2026", src: "CBK",
@@ -704,7 +704,7 @@ const SEED = {
       band: [50, 100], bandLabel: "Above 50 means expansion",
       hist: [49.6,50.1,50.8,51.4,50.9,51.2,51.8],
       what: "A monthly survey of purchasing managers. Above 50 means expansion.",
-      why: "The earliest read on activity there is, published on the first working day of each month \u2014 months before GDP confirms the same story.",
+      why: "The earliest read on activity there is, published on the first working day of each month - months before GDP confirms the same story.",
       note: "The earliest read on activity there is - published on the first working day, months before GDP." },
 
     { id: "nasi", label: "NSE All Share", group: "Markets", unit: "", dir: 1,
@@ -764,8 +764,14 @@ const SEED = {
       value: 3.63, prior: 4.33, priorLabel: "a year ago", asOf: "13 Aug 2026", src: "FRED",
       hist: [5.33,5.33,4.83,4.58,4.33,4.33,4.08,3.88,3.63],
       what: "The US central bank's policy rate.",
-      why: "It sets the return on holding dollars. When it falls, money looks harder for yield elsewhere \u2014 which is quietly good for the shilling and for Kenyan bonds.",
+      why: "It sets the return on holding dollars. When it falls, money looks harder for yield elsewhere - which is quietly good for the shilling and for Kenyan bonds.",
       note: "170bp of cuts. A falling Fed narrows the carry on holding dollars, which is quietly supportive of the shilling." },
+    { id: "brent", label: "Brent crude", group: "Global", unit: "$/bbl", dir: -1,
+      value: 74.2, prior: 71.85, priorLabel: "two reads ago", asOf: "13 Aug 2026", src: "FRED",
+      hist: [68.4,70.1,71.85,74.2],
+      what: "The global benchmark price for a barrel of crude oil.",
+      why: "Kenya imports all its fuel. Landed cost sets the pump price EPRA publishes each month, and the pump price moves the transport line of CPI a few weeks later.",
+      note: "Up for four straight reads. Not yet visible in this month's inflation print." },
     { id: "us10y", label: "US 10-year", group: "Global", unit: "%", dir: 0,
       value: 4.63, prior: 4.28, priorLabel: "a year ago", asOf: "13 Aug 2026", src: "FRED",
       hist: [4.28,4.15,4.35,4.5,4.4,4.55,4.7,4.63],
@@ -814,7 +820,31 @@ const SEED = {
       why: "Activity follows the cost of borrowing, at a long remove" },
   ],
 
-  /* ---- LAYER 3: relationships that have come apart ---- */
+  /* ---- LAYER 3: signals that typically move before their target ---- */
+  leading: [
+    { id: "brent", label: "Brent crude", value: 74.2, unit: "$/bbl",
+      target: "inflation", targetLabel: "Headline inflation", lag: "4 to 8 weeks",
+      why: "Landed fuel cost sets pump prices, and pump prices move the transport line of CPI",
+      state: "stress", dir: 1, streak: 3 },
+    { id: "kes_usd", label: "KES/USD", value: 129.34, unit: "",
+      target: "inflation", targetLabel: "Headline inflation", lag: "4 to 8 weeks",
+      why: "A weaker shilling raises the cost of everything bought in dollars, fuel included",
+      state: "steady", dir: 1, streak: 1 },
+    { id: "inflation", label: "Headline inflation", value: 6.49, unit: "%",
+      target: "cbr", targetLabel: "Central Bank Rate", lag: "about one MPC cycle",
+      why: "The MPC's own target is inflation, so a sustained move here is what the next decision responds to",
+      state: "stress", dir: 1, streak: 2 },
+    { id: "pmi", label: "Stanbic PMI", value: 51.8, unit: "",
+      target: "gdp", targetLabel: "GDP growth", lag: "about a quarter",
+      why: "New orders and output lead actual production, which is what a PMI survey is built to measure",
+      state: "good", dir: 1, streak: 2 },
+    { id: "fed_funds", label: "US Fed funds", value: 3.63, unit: "%",
+      target: "kes_usd", targetLabel: "KES/USD", lag: "4 to 6 weeks",
+      why: "Tighter dollar policy pulls capital out of frontier markets, and the shilling absorbs it",
+      state: "steady", dir: -1, streak: 3 },
+  ],
+
+  /* ---- LAYER 4: relationships that have come apart ---- */
   breaks: [
     { name: "Bank margin over policy", value: 5.63, unit: "pp", normalLo: 3.5, normalHi: 5.5, state: "high", basis: "judgement", n: 0,
       why: "Average lending rate less the Central Bank Rate.",
@@ -1153,6 +1183,32 @@ const Pill = ({ children, tone, c }) => (
     textTransform: "uppercase", whiteSpace: "nowrap", padding: "3px 9px", borderRadius: "var(--r-lg)",
     color: { good: c.good, stress: c.bad, watch: c.warn, steady: c.dim }[tone] || c.dim,
     background: c.chip }}>{children}</span>
+);
+
+/* One row on a vertical timeline: a coloured dot, a connecting stem, a label
+   and value, a line of context, and a status line. Shared by the chain
+   (what a known policy move has and has not reached yet) and the leading
+   panel (what a reading's own recent direction is pointing at), so the two
+   read as one visual language instead of two accidental ones. */
+const TimelineRow = ({ c, n, last, tone, label, value, meta, statusText, statusColor }) => (
+  <div style={{ display: "flex", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22 }}>
+      <span style={{ width: 11, height: 11, borderRadius: "var(--r-sm)", background: tone,
+        border: `2px solid ${c.card}`, boxShadow: `0 0 0 1.5px ${tone}`, flexShrink: 0,
+        animation: `kp-rise .35s ${n * .06}s both` }} />
+      {!last && <span style={{ flex: 1, width: 2, background: c.line, minHeight: 30 }} />}
+    </div>
+    <div style={{ flex: 1, paddingBottom: last ? 0 : 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{label}</span>
+        <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{value}</span>
+      </div>
+      <div style={{ ...PROSE, fontSize: "0.75rem", color: c.faint, marginTop: 0 }}>{meta}</div>
+      <div style={{ fontSize: "0.75rem", marginTop: 4, color: statusColor, fontWeight: 600 }}>
+        {statusText}
+      </div>
+    </div>
+  </div>
 );
 
 /* ===========================================================================
@@ -1924,46 +1980,56 @@ export default function KenyaPulse() {
               </div>
             </Section>
 
+            {/* LEADING */}
+            <Section title="What's building" c={c} i={2} pad={narrow ? 16 : 18}
+              note="A typical lag from published research, not a forecast. Colour follows whether the direction is good or bad for Kenya; the text says how long it has held.">
+              <div style={{ ...PROSE, fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
+                Signals that typically move before their target, read from their own recent direction.
+              </div>
+              {data.leading.map((l, n) => {
+                const last = n === data.leading.length - 1;
+                const tone = l.state === "good" ? c.good : l.state === "stress" ? c.bad : c.faint;
+                const arrow = l.dir > 0 ? "up" : l.dir < 0 ? "down" : "flat";
+                return (
+                  <TimelineRow key={l.id} c={c} n={n} last={last} tone={tone}
+                    label={l.label} value={`${l.value}${l.unit}`}
+                    meta={<>{l.lag} ahead of {l.targetLabel} · {l.why}</>}
+                    statusColor={tone}
+                    statusText={
+                      l.state === "waiting" ? "needs more readings"
+                      : l.streak === 1 ? `turned ${arrow} this read`
+                      : `${arrow} for ${l.streak + 1} straight reads`
+                    } />
+                );
+              })}
+            </Section>
+
             {/* CHAIN */}
-            <Section title="What is already coming" c={c} i={2} pad={narrow ? 16 : 18}
+            <Section title="What is already coming" c={c} i={3} pad={narrow ? 16 : 18}
               note="A link that has not moved while the one before it has is the part nobody has priced.">
-              <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
+              <div style={{ ...PROSE, fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
                 Policy reaches the economy along a chain, each link lagging the last.
               </div>
               {data.chain.map((s, n) => {
                 const last = n === data.chain.length - 1;
                 const tone = s.status === "moved" ? c.good : s.status === "still" ? c.warn : c.faint;
                 return (
-                  <div key={s.id} style={{ display: "flex", gap: 12 }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22 }}>
-                      <span style={{ width: 11, height: 11, borderRadius: "var(--r-sm)", background: tone,
-                        border: `2px solid ${c.card}`, boxShadow: `0 0 0 1.5px ${tone}`, flexShrink: 0,
-                        animation: `kp-rise .35s ${n * .06}s both` }} />
-                      {!last && <span style={{ flex: 1, width: 2, background: c.line, minHeight: 30 }} />}
-                    </div>
-                    <div style={{ flex: 1, paddingBottom: last ? 0 : 16 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between",
-                        alignItems: "baseline", gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{s.label}</span>
-                        <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{s.value}</span>
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: c.faint, marginTop: 0 }}>
-                        {s.lagMonths === 0 ? "immediate" : `about ${s.lagMonths} months behind policy`}
-                        {" · "}{s.why}
-                      </div>
-                      <div style={{ fontSize: "0.75rem", marginTop: 4, color: tone, fontWeight: 600 }}>
-                        {s.status === "moved" && `moved ${s.move > 0 ? "+" : ""}${s.move} over recent readings`}
-                        {s.status === "still" && "has not moved yet"}
-                        {s.status === "waiting" && "needs more readings"}
-                      </div>
-                    </div>
-                  </div>
+                  <TimelineRow key={s.id} c={c} n={n} last={last} tone={tone}
+                    label={s.label} value={s.value}
+                    meta={<>{s.lagMonths === 0 ? "immediate" : `about ${s.lagMonths} months behind policy`}
+                      {" · "}{s.why}</>}
+                    statusColor={tone}
+                    statusText={
+                      s.status === "moved" ? `moved ${s.move > 0 ? "+" : ""}${s.move} over recent readings`
+                      : s.status === "still" ? "has not moved yet"
+                      : "needs more readings"
+                    } />
                 );
               })}
             </Section>
 
             {/* BREAKS */}
-            <Section title="What is mispriced" c={c} i={3} pad={narrow ? 16 : 18}
+            <Section title="What is mispriced" c={c} i={4} pad={narrow ? 16 : 18}
               note="A measured range is computed from readings this app has logged. A judged one is read off published history until enough readings exist.">
               <div style={{ fontSize: "0.875rem", color: c.dim, marginBottom: 16 }}>
                 Relationships that normally hold. One outside its range is either a mispricing
@@ -2671,6 +2737,7 @@ function mergeFeed(seed, feed) {
     asOf: feed.asOf || seed.asOf, source: "live",
     ladder: Array.isArray(feed.ladder) && feed.ladder.length ? feed.ladder : seed.ladder,
     chain: Array.isArray(feed.chain) && feed.chain.length ? feed.chain : seed.chain,
+    leading: Array.isArray(feed.leading) && feed.leading.length ? feed.leading : seed.leading,
     breaks: Array.isArray(feed.breaks) && feed.breaks.length ? feed.breaks : seed.breaks,
     call: feed.call || seed.call,
     disagreements: Array.isArray(feed.disagreements) && feed.disagreements.length

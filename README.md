@@ -4,7 +4,7 @@
 
 **A dipstick on the Kenyan economy, and a read on where money is being paid.**
 
-Thirty published indicators from free sources. Three layers of signal.
+Thirty-four published indicators from free sources. Four layers of signal.
 One JSON file. No database, no accounts, no paid feeds.
 
 `Python 3` · `React 19` · `Vite` · `PWA` · `MIT`
@@ -18,11 +18,12 @@ One JSON file. No database, no accounts, no paid feeds.
 
 ## What it does
 
-Most macro dashboards show numbers. This one answers three questions in order.
+Most macro dashboards show numbers. This one answers four questions in order.
 
 | Layer | Question | Method |
 |---|---|---|
 | **Ladder** | Where is money actually being paid? | Every Kenyan instrument, after withholding tax, less inflation, ranked by **real** return |
+| **Leading** | What's building, before it prints? | Five signals with a published lag - Brent crude and the shilling ahead of inflation, inflation ahead of the policy rate, the PMI ahead of GDP - read from their own recent direction |
 | **Chain** | What is coming but has not printed? | Policy rate to GDP across five links, each with its own lag |
 | **Breaks** | What is mispriced? | Long-held relationships (bank margin over policy, sovereign spread, real deposit rate…) flagged when they leave their range |
 
@@ -38,7 +39,7 @@ standing still in cash costs against it.
 ## Architecture
 
 ```
-     cron: 1st & 16th, plus a lighter Saturday pass
+     cron: a fast pass daily, the full sweep weekly
                   │
                   ▼
    CBK ──▶┌──────────────────────┐
@@ -96,7 +97,8 @@ A single-file React PWA (`app/src/App.jsx`).
   plain-language *what it is / why it matters*, with sparklines and pinned
   favourites.
 - **Edge** — an executive briefing (narrative call plus a five-line snapshot,
-  one tap to copy), then the ladder, the transmission chain, and the breaks.
+  one tap to copy), then the ladder, what's building, the transmission chain,
+  and the breaks.
 - **Trends** — 24 years of World Bank annual data, ten series, decade averages.
 - **Outlook** — IMF projections to 2031, actuals separated from forecast.
 - **Data** — sync controls, sources, disagreements, every reading in a table.
@@ -188,7 +190,7 @@ npx vercel --prod
 
 ## Tests
 
-Eighteen suites, 707 assertions. Most run against the component mounted under
+Eighteen suites, 721 assertions. Most run against the component mounted under
 Node with no browser at all; the push work is checked three ways, because a
 notification that fails silently is worse than none, and the design tokens are
 read back out of a real browser rather than trusted.

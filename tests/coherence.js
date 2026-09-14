@@ -63,6 +63,30 @@ ok('a rise is reported as a rise', sign(cbr2.value-cbr2.prior)>0);
 ok('and matches the last step of the line',
    Math.abs((cbr2.value-cbr2.prior)-lastStep(cbr2.hist))<1e-9);
 
+console.log('\n── LEADING INDICATORS COME FROM THE FEED, NOT THE SEED');
+/* The exact bug class this file exists to catch, in the field it was just
+   added for: mergeFeed spreads {...seed, ...} first, so any field missing an
+   explicit override silently keeps the seed's value forever, live data or
+   not - correct-looking on a fresh install and wrong on every one after. */
+ok('the seed carries its own leading array to fall back on',
+   Array.isArray(SEED.leading) && SEED.leading.length > 0, SEED.leading);
+const seedBrent = SEED.leading.find(l => l.id === 'brent');
+const withLeading = mergeFeed(SEED, {asOf: '2026-09-14', signals: [
+  {id: 'cbr', value: 8.75, prior: 8.75, hist: [8.75], source: 'cbk'}],
+  leading: [{id: 'brent', label: 'Brent crude', value: 999, unit: '$/bbl',
+    target: 'inflation', targetLabel: 'Headline inflation', lag: '4 to 8 weeks',
+    why: 'test', state: 'stress', dir: 1, streak: 9}]});
+ok('a feed that carries leading data overrides the seed with it',
+   withLeading.leading.find(l => l.id === 'brent').value === 999,
+   withLeading.leading);
+ok('so the seed value is not silently shown for a live install',
+   withLeading.leading.find(l => l.id === 'brent').value !== seedBrent.value);
+const withoutLeading = mergeFeed(SEED, {asOf: '2026-09-14', signals: [
+  {id: 'cbr', value: 8.75, prior: 8.75, hist: [8.75], source: 'cbk'}]});
+ok('a feed with no leading field at all falls back to the seed, not to nothing',
+   Array.isArray(withoutLeading.leading) && withoutLeading.leading.length > 0,
+   withoutLeading.leading);
+
 console.log('\n── EVERY INDICATOR IN A REAL COLLECTOR PAYLOAD');
 const live=JSON.parse(fs.readFileSync(path.resolve(__dirname,'live.json'),'utf8'));
 const merged=mergeFeed(SEED, live);

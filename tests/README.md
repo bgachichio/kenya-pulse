@@ -1,6 +1,6 @@
 # Tests
 
-Eighteen suites, 707 assertions. All of them exit on their own; a
+Eighteen suites, 721 assertions. All of them exit on their own; a
 non-zero exit code means a failure.
 
 ```bash
@@ -48,9 +48,9 @@ python3 collector_test.py
 | sw_test | The built worker: push → notification, tap → focus or open, a malformed payload, an off-site link, subscription rotation |
 | push_browser | Chromium end to end: the worker registers, a push delivered through DevTools raises the notification, the app still opens offline |
 | interact | A tap and a click: the event sequence WebKit emits for one tap, the focus a tap leaves behind, the settings veil, and a static check that no click handler is hiding on a bare div |
-| coherence | Whether the figure in a row agrees with the line beside it, and whether the line's shape survives collecting more often |
+| coherence | Whether the figure in a row agrees with the line beside it, whether the line's shape survives collecting more often, and whether a live feed's leading-indicator data actually overrides the seed's or is silently ignored |
 | touch-check | Real Chromium with a real finger: taps on the chart, the sheet, every tap target measured, and the same page driven with a mouse and a keyboard |
-| collector_test | The collector with no network: level-collapsing, scoring, CBK's Treasury bill table parsed in each layout it is published in, that a daily fast pass leaves the annual series intact, the 182-day bill's staleness rules, `--sources` run end to end against a broken scraper and a stale one, the cron and session blocks from `DEPLOY.md` executed against stand-ins, and the Telegram alert - trend arrows, the off-range reasoning and percentile range, the one outlook link named with its own lag, HTML escaping on hand-typed sheet input, and the fallback to plain text when Telegram rejects the markup |
+| collector_test | The collector with no network: level-collapsing, scoring, CBK's Treasury bill table parsed in each layout it is published in, that a daily fast pass leaves the annual series intact, the 182-day bill's staleness rules, `--sources` run end to end against a broken scraper and a stale one, the cron and session blocks from `DEPLOY.md` executed against stand-ins, leading indicators reading their own streak and direction from a distinct-level history, and the Telegram alert - trend arrows, the off-range reasoning and percentile range, the outlook link and the leading signal each named with their own lag, HTML escaping on hand-typed sheet input, and the fallback to plain text when Telegram rejects the markup |
 | visual-check | The built app in real Chromium: role tokens resolve, Courier Prime on the display sizes and Inter on the UI, the 20px card shape, dark surfaces, the text-size toggle actually moving `rem`, the manifest's two splash colours read back against the live tokens, and the two font preload tags pointing at real, current-build files |
 | push_test | The server: due times across timezones and days, one send per day, the SSRF allowlist, dead-device pruning, real VAPID signing |
 

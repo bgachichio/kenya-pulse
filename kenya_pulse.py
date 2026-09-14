@@ -20,11 +20,12 @@ externally managed and `pip3 install --user` fails there outright:
     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 On the VM every call runs as ~/kenya-pulse/.venv/bin/python, cron included.
 
-The three layers, computed here rather than in the browser so the app stays a
+The four layers, computed here rather than in the browser so the app stays a
 renderer and this file stays the single place logic can be wrong:
 
   LADDER    after-tax real return on every instrument, ranked
   CHAIN     the transmission from policy rate to GDP, with lags
+  LEADING   signals that typically run ahead of a target reading, with lags
   BREAKS    long-running relationships that have come apart
 
 Author: Brian Gachichio · gachichio.org
@@ -134,6 +135,7 @@ REGISTER = {
 
     "fed_funds": ("US Fed funds",                 "Global",   "%",       0, "daily"),
     "us10y":     ("US 10-year",                   "Global",   "%",       0, "daily"),
+    "brent":     ("Brent crude",                  "Global",   "$/bbl",  -1, "daily"),
     "world_gdp": ("World growth",                 "Global",   "%",      +1, "annual"),
     "ssa_gdp":   ("Sub-Saharan Africa growth",    "Global",   "%",      +1, "annual"),
 }
@@ -164,7 +166,7 @@ PRECEDENCE = {
     "nasi": ["nse"], "nse20": ["nse"], "nse25": ["nse"],
     "bank_idx": ["nse"], "mktcap": ["nse"],
     "debt_gdp": ["manual", "imf"], "debtserv": ["manual"],
-    "fed_funds": ["fred"], "us10y": ["fred"],
+    "fed_funds": ["fred"], "us10y": ["fred"], "brent": ["fred"],
     "world_gdp": ["imf"], "ssa_gdp": ["imf"],
 }
 
@@ -283,13 +285,15 @@ def src_nse():
 
 def src_fred():
     """
-    US policy rate and the 10-year. These matter to Kenya through two channels:
-    the sovereign spread that sets what Kenya pays to borrow abroad, and the
-    carry that decides whether foreign money stays in Kenyan paper.
+    US policy rate, the 10-year, and Brent crude. The first two matter to
+    Kenya through the sovereign spread and the carry that decides whether
+    foreign money stays in Kenyan paper. Brent matters because Kenya imports
+    all its fuel: landed cost feeds pump prices, which feed the transport
+    line of CPI, a few weeks out rather than immediately.
     Date-limited so the download is 68 KB rather than 420 KB.
     """
     out = {}
-    for key, sid in (("fed_funds", "DFF"), ("us10y", "DGS10")):
+    for key, sid in (("fed_funds", "DFF"), ("us10y", "DGS10"), ("brent", "DCOILBRENTEU")):
         try:
             r = get(f"https://fred.stlouisfed.org/graph/fredgraph.csv"
                     f"?id={sid}&cosd=2015-01-01", plain=True)
@@ -300,7 +304,8 @@ def src_fred():
                 out[f"_{key}_asof"] = vals[-1][0]
         except Exception as e:
             log(f"    fred {key}: {e}")
-    log(f"    fred: fed {out.get('fed_funds')}, us10y {out.get('us10y')}")
+    log(f"    fred: fed {out.get('fed_funds')}, us10y {out.get('us10y')}, "
+        f"brent {out.get('brent')}")
     return out
 
 
@@ -1169,7 +1174,68 @@ def build_chain(v, hist):
 
 
 # ===========================================================================
-# LAYER 3 — THE BREAKS
+# LAYER 3 — LEADING INDICATORS
+# ===========================================================================
+# Each pair is one signal that typically moves before its target, with the
+# lag published research gives it - the same honesty as CHAIN's own lags:
+# stated from outside research, not regressed from the few months of history
+# this system has logged so far. Brent and KES/USD both feed inflation
+# through the same channel - landed fuel cost - so both are kept, because the
+# reader who watches one and not the other misses half the pressure.
+LEADING = [
+    ("brent", "Brent crude", "inflation", "Headline inflation", "4 to 8 weeks",
+     "Landed fuel cost sets pump prices, and pump prices move the transport line of CPI"),
+    ("kes_usd", "KES/USD", "inflation", "Headline inflation", "4 to 8 weeks",
+     "A weaker shilling raises the cost of everything bought in dollars, fuel included"),
+    ("inflation", "Headline inflation", "cbr", "Central Bank Rate", "about one MPC cycle",
+     "The MPC's own target is inflation, so a sustained move here is what the next decision responds to"),
+    ("pmi", "Stanbic PMI", "gdp", "GDP growth", "about a quarter",
+     "New orders and output lead actual production, which is what a PMI survey is built to measure"),
+    ("fed_funds", "US Fed funds", "kes_usd", "KES/USD", "4 to 6 weeks",
+     "Tighter dollar policy pulls capital out of frontier markets, and the shilling absorbs it"),
+]
+
+
+def build_leading(sig):
+    """
+    For each pair, the indicator's own recent direction and how many readings
+    it has held that direction - a streak, not a probability. 'sig' already
+    carries a distinct-level history per indicator (score() built it for the
+    same reason CHAIN needs one: so a series read daily and one read monthly
+    say the same thing). Three distinct levels is the floor for saying
+    anything about direction at all; short of that this reports 'waiting',
+    same as CHAIN does on a fresh install rather than guessing.
+    """
+    g = {s["id"]: s for s in sig}
+    out = []
+    for lid, llabel, tid, tlabel, lag, why in LEADING:
+        s = g.get(lid)
+        if s is None:
+            continue
+        levels = s["hist"]
+        streak, direction = 0, 0
+        for i in range(len(levels) - 1, 0, -1):
+            step = levels[i] - levels[i - 1]
+            if step == 0:
+                break
+            d = 1 if step > 0 else -1
+            if direction == 0:
+                direction, streak = d, 1
+            elif d == direction:
+                streak += 1
+            else:
+                break
+        ready = len(levels) >= 3
+        out.append({"id": lid, "label": llabel, "value": s["value"], "unit": s["unit"],
+                    "target": tid, "targetLabel": tlabel, "lag": lag, "why": why,
+                    "state": s["state"] if ready else "waiting",
+                    "dir": direction if ready else 0,
+                    "streak": streak if ready else 0})
+    return out
+
+
+# ===========================================================================
+# LAYER 4 — THE BREAKS
 # ===========================================================================
 # Each relationship is defined once: how to compute it, a fallback range taken
 # from published Kenyan history, and what a reading outside that range means.
@@ -1438,7 +1504,7 @@ def _trend(entry):
     return " ▲" if delta > 0 else " ▼"
 
 
-def briefing(sig, ladder, breaks, chain, asof):
+def briefing(sig, ladder, breaks, chain, leading, asof):
     """The Telegram alert. Every field below is already computed elsewhere in
     this file for the app - delta, the transmission chain, the percentile
     range behind each break - so this reads it, it does not recompute it.
@@ -1505,6 +1571,16 @@ def briefing(sig, ladder, breaks, chain, asof):
             need = 3 - max((c["readings"] for c in waiting), default=0)
             L.append(f"<b>Outlook</b> transmission chain needs {need} more reading"
                       f"{'s' if need != 1 else ''} before it can show movement.")
+
+    # A leading indicator three or more reads into one direction is worth a
+    # line; fewer than that is noise a reader cannot act on either way.
+    active = [x for x in leading if x["state"] != "waiting" and x["streak"] >= 2]
+    if active:
+        lead = max(active, key=lambda x: x["streak"])
+        arrow = "up" if lead["dir"] > 0 else "down"
+        L.append(f"<b>Building</b> {lead['label'].lower()} {arrow} "
+                  f"{lead['streak'] + 1} straight reads, pointing at "
+                  f"{lead['targetLabel'].lower()} over {lead['lag']}.")
 
     return "\n".join(L)
 
@@ -1996,6 +2072,7 @@ def main():
 
     ladder = build_ladder(values, fresh)
     chain = build_chain(values, hist)
+    leading = build_leading(signals)
     breaks = build_breaks(values, spine, hist)
     call = build_call(ladder, chain, breaks)
     frozen = watchdog(values, state)
@@ -2009,12 +2086,12 @@ def main():
                "fallbacks": fallbacks,
                "staleRates": [r["label"] for r in ladder if r.get("stale")],
                "signals": signals, "ladder": ladder, "chain": chain,
-               "breaks": breaks, "call": call,
+               "leading": leading, "breaks": breaks, "call": call,
                "disagreements": disagree, "carried": carried,
                "sourcesLive": sorted(k for k, d in by_source.items()
                                      if any(not x.startswith("_") for x in d)),
                "cbkDates": by_source.get("cbk", {}).get("_dates", {}),
-               "briefing": briefing(signals, ladder, breaks, chain, asof),
+               "briefing": briefing(signals, ladder, breaks, chain, leading, asof),
                "runSeconds": round(time.time() - t0, 1)}
 
     if DRY:

@@ -693,11 +693,47 @@ with tempfile.TemporaryDirectory() as tmp:
     ok("compact runs monthly, not yearly",
        any(f[3] == "*" and f[2] == "1" for f in fields), str(fields))
 
+print("\n── A LEADING INDICATOR READS ITS OWN DIRECTION, NOT A FORECAST")
+
+
+def _sig(id_, value, unit, delta=None, hist=None, state="steady"):
+    # score() always sets state on a real signal; this stands in for that.
+    return {"id": id_, "label": id_, "value": value, "unit": unit, "delta": delta,
+            "hist": hist if hist is not None else [value], "state": state}
+
+
+rising = kp.build_leading([_sig("brent", 82.0, "$/bbl", hist=[74.0, 76.0, 79.0, 82.0])])
+ok("three rising steps becomes an up streak of three",
+   rising[0]["dir"] == 1 and rising[0]["streak"] == 3 and rising[0]["state"] != "waiting",
+   rising[0])
+
+falling = kp.build_leading([_sig("fed_funds", 3.50, "%", hist=[4.0, 3.75, 3.60, 3.50])])
+ok("falling steps become a down streak the same way",
+   falling[0]["dir"] == -1 and falling[0]["streak"] == 3, falling[0])
+
+thin_hist = kp.build_leading([_sig("pmi", 51.8, "", hist=[50.8, 51.8])])
+ok("fewer than three distinct levels waits, same as the chain does on a fresh install",
+   thin_hist[0]["state"] == "waiting" and thin_hist[0]["dir"] == 0, thin_hist[0])
+
+reversed_ = kp.build_leading([_sig("kes_usd", 129.0, "", hist=[128.0, 129.5, 129.0])])
+ok("a reversal breaks the streak at one, not a false three",
+   reversed_[0]["dir"] == -1 and reversed_[0]["streak"] == 1, reversed_[0])
+
+missing = kp.build_leading([_sig("cbr", 8.75, "%")])
+ok("a leading indicator this run never fetched is skipped, not crashed on",
+   missing == [], missing)
+
+passthrough = kp.build_leading([{"id": "pmi", "label": "x", "value": 51.8, "unit": "",
+                                 "state": "good", "hist": [49.6, 50.8, 51.8]}])
+ok("favourability is read from the state score() already computed, not recomputed here",
+   passthrough[0]["state"] == "good", passthrough[0])
+
+ok("every pair in LEADING points at real REGISTER ids on both ends",
+   all(lid in kp.REGISTER and tid in kp.REGISTER for lid, _, tid, *_ in kp.LEADING),
+   [(lid, tid) for lid, _, tid, *_ in kp.LEADING
+    if lid not in kp.REGISTER or tid not in kp.REGISTER])
+
 print("\n── THE TELEGRAM ALERT SAYS SOMETHING, NOT JUST SOMETHING HAPPENED")
-
-
-def _sig(id_, value, unit, delta=None):
-    return {"id": id_, "label": id_, "value": value, "unit": unit, "delta": delta}
 
 
 sig_rich = [
@@ -738,9 +774,19 @@ chain_rich = [
      "status": "still", "readings": 10},
 ]
 
-out = kp.briefing(sig_rich, ladder_rich, breaks_rich, chain_rich, "2026-09-09")
+leading_rich = [
+    {"id": "brent", "label": "Brent crude", "value": 74.2, "unit": "$/bbl",
+     "target": "inflation", "targetLabel": "Headline inflation", "lag": "4 to 8 weeks",
+     "why": "Landed fuel cost sets pump prices", "state": "stress", "dir": 1, "streak": 2},
+    {"id": "fed_funds", "label": "US Fed funds", "value": 3.63, "unit": "%",
+     "target": "kes_usd", "targetLabel": "KES/USD", "lag": "4 to 6 weeks",
+     "why": "Tighter dollar policy pulls capital out of frontier markets",
+     "state": "steady", "dir": 0, "streak": 0},
+]
+
+out = kp.briefing(sig_rich, ladder_rich, breaks_rich, chain_rich, leading_rich, "2026-09-09")
 ok("every section is labelled in bold, and every tag closes",
-   out.count("<b>") == 11 and out.count("<b>") == out.count("</b>"),
+   out.count("<b>") == 12 and out.count("<b>") == out.count("</b>"),
    f"{out.count(chr(60)+'b'+chr(62))} open, {out.count('</b>')} close")
 ok("a rising reading gets an up arrow", "8.7507% ▲" in out, out)
 ok("an unchanged reading gets no arrow at all",
@@ -759,15 +805,22 @@ ok("and carries its own lag, read from CHAIN, not invented",
    "~5mo typical lag" in out, out)
 ok("gdp growth is not named - one link is the point of the section, not five",
    "gdp growth" not in out.lower(), out)
+ok("the leading signal names the mover, the direction and the target",
+   "<b>Building</b> brent crude up 3 straight reads" in out
+   and "pointing at headline inflation over 4 to 8 weeks" in out, out)
+ok("a steady signal is not the one picked, even if it sits earlier in the list",
+   "us fed funds" not in out.lower(), out)
 words = len(out.split())
-ok("same order of length as the message it replaced (122 words), not longer",
+ok("same order of length as the message it replaced (122 words), not much longer",
    words <= 145, f"{words} words")
 
-thin = kp.briefing([_sig("cbr", 8.75, "%", None)], [], [], [], "2026-01-01")
+thin = kp.briefing([_sig("cbr", 8.75, "%", None)], [], [], [], [], "2026-01-01")
 ok("a bare first run - no history, no ladder, no breaks - does not crash",
    "KENYA PULSE" in thin, thin)
 ok("and shows no arrow when there is nothing yet to compare against",
    "▲" not in thin and "▼" not in thin, thin)
+ok("no leading indicators means no Building line, not an empty one",
+   "<b>Building</b>" not in thin, thin)
 
 ok("a hand-typed sheet problem cannot break the alert's HTML",
    kp._esc("<script>&x</script>") == "&lt;script&gt;&amp;x&lt;/script&gt;",
