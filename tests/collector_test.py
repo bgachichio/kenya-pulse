@@ -349,6 +349,8 @@ ok("it is documented in the usage banner", "--sources  what each source" in src)
 ok("it reports what parsed, not just what answered",
    "returned nothing" in src and "fell back" in src)
 ok("--health still exists for reachability", "def health_report" in src)
+ok("--health also checks the alert channel, not just data sources",
+   "Telegram API" in src and "api.telegram.org" in src.split("def health_report")[1][:2000])
 
 print("\n── THE SOURCE REPORT ACTUALLY RUNS")
 # Not "the string is in the file" - the function is executed with every fetcher
@@ -442,6 +444,29 @@ ok("the report states how many live sources answered",
 ok("and names the ones that did not",
    "SILENT: " in out and "cbkbills" in out.split("SILENT: ")[1][:60],
    [l for l in out.splitlines() if "connection" in l])
+
+print("\n── A TOTAL OUTAGE IS CAUGHT SAME-DAY, NOT AFTER A WEEK")
+# The watchdog only speaks up once every reading has sat unchanged for eight
+# days - fine for one publisher going quiet, far too slow for the box itself
+# losing its route out. source_health() is what main() checks on every single
+# run to catch that second case immediately.
+mixed = {"cbk": {"cbr": 8.75, "inflation": 6.49}, "nse": {},
+        "fred": {"_asOf": {"fed_funds": "2026-09-01"}}, "manual": {"npl": 16.4}}
+live, dead = kp.source_health(mixed)
+ok("a source with a real reading counts as live", live == ["cbk"], live)
+ok("an empty dict counts as dead", "nse" in dead, dead)
+ok("a dict holding only an underscored key is dead, not live",
+   "fred" in dead, dead)
+ok("manual is not judged as a network source either way",
+   "manual" not in live and "manual" not in dead, (live, dead))
+
+everything_down = {"cbk": {}, "nse": {}, "fred": {}, "serrari": {},
+                   "sbonds": {}, "cbkbills": {}, "sbills": {}, "te": {}}
+live2, dead2 = kp.source_health(everything_down)
+ok("when every source comes back empty, none is called live",
+   live2 == [], live2)
+ok("and every one of them is named as dead",
+   sorted(dead2) == sorted(everything_down), dead2)
 
 print("\n── A SOURCE THAT ANSWERS, PARSES, AND IS STILL STALE")
 # The failure that hid for weeks and that neither --health nor a parse check

@@ -1779,6 +1779,19 @@ def tables_report(url):
     return 0
 
 
+def source_health(by_source):
+    """Which of gather()'s named sources returned an actual reading this run,
+    not just an entry in the dict. Shared by --sources and the immediate
+    outage check in main() so the two definitions of "live" can't drift
+    apart and disagree with each other."""
+    named = [n for n in by_source if not n.startswith("_") and n != "manual"]
+    live = [n for n in named
+            if any(not k.startswith("_") and isinstance(v, (int, float))
+                   for k, v in by_source[n].items())]
+    dead = [n for n in named if n not in live]
+    return live, dead
+
+
 def sources_report():
     """What every source actually returned, not merely whether it answered.
 
@@ -1809,12 +1822,8 @@ def sources_report():
         print(f"  {name:12} {len(got):>6}  {keys or '(none)'}{flag}")
 
     values, prov, _ = reconcile(by_source)
-    live = [n for n in sorted(by_source)
-            if not n.startswith("_") and n != "manual"
-            and any(not k.startswith("_") and isinstance(v, (int, float))
-                    for k, v in by_source[n].items())]
-    dead = [n for n in sorted(by_source)
-            if not n.startswith("_") and n != "manual" and n not in live]
+    live, dead = source_health(by_source)
+    live, dead = sorted(live), sorted(dead)
     print(f"\n  connection: {len(live)} of {len(live) + len(dead)} live sources answered"
           + (f"; SILENT: {', '.join(dead)}" if dead else "; none silent"))
 
@@ -1921,6 +1930,14 @@ def health_report():
     ] + ([("Input sheet",
            f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv", True)]
          if SHEET_ID else [])
+    # Not a data source, but it fails the same way for the same reason - the
+    # box losing its outbound path takes both down together, and a run that
+    # cannot alert about a run that cannot fetch is the worst of the two to
+    # miss silently. getMe costs nothing and proves both the route and the
+    # token; with no token set, the bare domain still proves the route.
+    tg_check = (("Telegram API", f"https://api.telegram.org/bot{TG_TOKEN}/getMe", True)
+                if TG_TOKEN else ("Telegram API", "https://api.telegram.org/", True))
+    checks = checks + [tg_check]
     print(f"\n  {'SOURCE':22} {'STATUS':11} NOTE")
     print("  " + "-" * 58)
     ok = 0
@@ -1933,8 +1950,9 @@ def health_report():
             ok += 1
         except Exception as e:
             print(f"  {name:22} {'DOWN':11} {e}")
-    print(f"\n  {ok} of {len(checks)} reachable. A source being down does not break "
-          f"the app:\n  the last good reading is carried forward and labelled with its age.")
+    print(f"\n  {ok} of {len(checks)} reachable. A data source being down does not break "
+          f"the app - the last good reading is carried forward and labelled with its age.\n"
+          f"  Telegram being down means alerts go silent instead, including this one.")
     return ok
 
 
@@ -2038,6 +2056,10 @@ def main():
     t0 = time.time()
     log(f"Kenya Pulse{' (fast)' if FAST else ''}")
     by_source, spine = gather()
+    live_sources, dead_sources = source_health(by_source)
+    if not live_sources:
+        log(f"  ⚠ every source came back empty ({len(dead_sources)} tried) - "
+            f"this looks like a network problem on the box, not one publisher going quiet")
 
     log("typed figures")
     man_vals, man_dates = src_manual()
@@ -2088,8 +2110,7 @@ def main():
                "signals": signals, "ladder": ladder, "chain": chain,
                "leading": leading, "breaks": breaks, "call": call,
                "disagreements": disagree, "carried": carried,
-               "sourcesLive": sorted(k for k, d in by_source.items()
-                                     if any(not x.startswith("_") for x in d)),
+               "sourcesLive": sorted(live_sources),
                "cbkDates": by_source.get("cbk", {}).get("_dates", {}),
                "briefing": briefing(signals, ladder, breaks, chain, leading, asof),
                "runSeconds": round(time.time() - t0, 1)}
@@ -2146,6 +2167,15 @@ def main():
         f"breaks · {payload['runSeconds']}s")
 
     alerts = []
+    if not live_sources:
+        # The watchdog below only fires after 8 days of identical readings, which
+        # is fine for one quiet publisher but far too slow for the box itself
+        # losing its network path - every source failing in the same run is the
+        # signature of that, and it deserves a same-day alert, not a week's wait.
+        alerts.append(f"⚠ No source reachable this run ({len(dead_sources)} tried, "
+                      f"0 answered). Likely DNS or outbound network on the VM, not "
+                      f"a publisher going quiet - run --health to see which calls fail "
+                      f"and why.")
     if sheet_problems:
         # Free text someone typed into a cell, not a label this file wrote -
         # the one thing in this message that has to be escaped, since HTML
