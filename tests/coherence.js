@@ -236,5 +236,37 @@ ok('and a signal the collector is not worried about is not flagged either',
 ok('the row itself only shows the badge when the flag is set',
    /i\.stale\s*&&[\s\S]{0,40}Pill/.test(SRC), 'no stale badge wired into the list row');
 
+console.log('\n── THE DATE SHOWN AGREES WITH THE VALUE THAT EARNED IT');
+/* The bug this section guards: NSE's value updated to a genuinely fresh
+   reading while its displayed date stayed fixed on the seed's original
+   "17 Aug 2026" forever, because only CBK's own dates ever reached the app.
+   A correct number wearing a stale-looking date is as misleading as a
+   correct date on a stale number. */
+const nsaiFreshDate = mergeFeed(SEED, {asOf: '2026-09-19', signalDates: {nasi: '2026-09-18'},
+  signals: [{id: 'nasi', value: 238.61, prior: 238.61, hist: [231.6, 238.13, 238.61],
+    source: 'nse', stale: false, ageDays: 0}]});
+const nasiRow = nsaiFreshDate.indicators.find(i => i.id === 'nasi');
+ok('an ISO date from the collector renders as a real date, not the seed fallback',
+   nasiRow.asOf === '18 Sep 2026', nasiRow.asOf);
+
+const cbrDmy = mergeFeed(SEED, {asOf: '2026-09-19', signalDates: {cbr: '11/08/2026'},
+  signals: [{id: 'cbr', value: 8.75, prior: 8.75, hist: [8.75], source: 'cbk'}]});
+ok('CBK\'s day/month/year dates still render the same way as before',
+   cbrDmy.indicators.find(i => i.id === 'cbr').asOf === '11 Aug 2026',
+   cbrDmy.indicators.find(i => i.id === 'cbr').asOf);
+
+const inflationTextDate = mergeFeed(SEED, {asOf: '2026-09-19',
+  signalDates: {inflation: 'July,2026'},
+  signals: [{id: 'inflation', value: 6.6, prior: 6.6, hist: [6.6], source: 'cbk'}]});
+ok('a CBK date with no day at all passes through as CBK printed it',
+   inflationTextDate.indicators.find(i => i.id === 'inflation').asOf === 'July,2026',
+   inflationTextDate.indicators.find(i => i.id === 'inflation').asOf);
+
+const noDateAtAll = mergeFeed(SEED, {asOf: '2026-09-19', signalDates: {},
+  signals: [{id: 'nasi', value: 240, prior: 238.61, hist: [238.61, 240], source: 'nse'}]});
+ok('with no date for this id at all, the seed\'s own label is kept, not blanked',
+   noDateAtAll.indicators.find(i => i.id === 'nasi').asOf === SEED.indicators.find(i => i.id === 'nasi').asOf,
+   noDateAtAll.indicators.find(i => i.id === 'nasi').asOf);
+
 console.log(`\n${'═'.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(50)}`);
 process.exit(fail?1:0);

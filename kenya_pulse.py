@@ -1732,6 +1732,38 @@ def freshness(by_source, man_dates):
             fresh[_k] = {"asOf": _d, "ageDays": _age,
                          "stale": _age > MANUAL_CADENCE.get(_k, 60),
                          "why": "fetched live"}
+    # NSE prints its own "Statistics as of" date on every pull - the trading
+    # day the index closed on, not the day the page happened to be fetched.
+    # Without this the five NSE rows never carried a real date at all, which
+    # is how a five-week freeze went unnoticed until someone checked by eye.
+    _nse_asof = by_source.get("nse", {}).get("_asof")
+    if _nse_asof:
+        try:
+            _d = datetime.strptime(_nse_asof, "%d-%b-%Y").date().isoformat()
+            _age = (datetime.now(timezone.utc).date()
+                    - datetime.fromisoformat(_d).date()).days
+            for _k in ("nasi", "nse20", "nse25", "bank_idx", "mktcap"):
+                if isinstance(by_source.get("nse", {}).get(_k), (int, float)):
+                    fresh[_k] = {"asOf": _d, "ageDays": _age,
+                                 "stale": _age > STALE_DAYS.get("daily", 5),
+                                 "why": "NSE statistics"}
+        except ValueError:
+            pass
+    # FRED's own CSV already carries the real observation date per series.
+    for _k in ("fed_funds", "us10y", "brent"):
+        _d = by_source.get("fred", {}).get(f"_{_k}_asof")
+        if _d and isinstance(by_source.get("fred", {}).get(_k), (int, float)):
+            _age = (datetime.now(timezone.utc).date()
+                    - datetime.fromisoformat(_d).date()).days
+            fresh[_k] = {"asOf": _d, "ageDays": _age,
+                         "stale": _age > STALE_DAYS.get("daily", 5), "why": "FRED"}
+    # CBK's indicative FX panel prints no date of its own, but it is refreshed
+    # daily - the same "fetched live" convention already used for the MMF and
+    # bond rungs above.
+    for _k in ("kes_usd", "kes_eur", "kes_gbp"):
+        if isinstance(by_source.get("cbk", {}).get(_k), (int, float)):
+            fresh[_k] = {"asOf": _today, "ageDays": 0, "stale": False,
+                         "why": "fetched live"}
 
     return fresh
 
@@ -2113,6 +2145,15 @@ def main():
     frozen = watchdog(values, state)
     asof = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    # Every indicator with a knowable publication date, not just the CBK
+    # panel. CBK's own inline dates come first because they are the more
+    # specific reading for a handful of ids (the key-rates block); fresh's
+    # entries then win where both exist, since freshness() already resolves
+    # which source is actually winning that indicator (the 91-day bill's
+    # auction date, not CBK's own homepage text, once cbkbills is live).
+    signal_dates = dict(by_source.get("cbk", {}).get("_dates", {}))
+    signal_dates.update({k: v["asOf"] for k, v in fresh.items() if v.get("asOf")})
+
     payload = {"asOf": asof,
                "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "frozenDays": frozen,
@@ -2124,7 +2165,7 @@ def main():
                "leading": leading, "breaks": breaks, "call": call,
                "disagreements": disagree, "carried": carried,
                "sourcesLive": sorted(live_sources),
-               "cbkDates": by_source.get("cbk", {}).get("_dates", {}),
+               "signalDates": signal_dates,
                "briefing": briefing(signals, ladder, breaks, chain, leading, asof),
                "runSeconds": round(time.time() - t0, 1)}
 

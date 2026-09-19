@@ -281,6 +281,35 @@ ok("and an undated figure is treated as stale, not as fresh",
    all(f.get(k, {}).get("stale") for k in ("tbill182", "tbill364")),
    str({k: f.get(k) for k in ("tbill182", "tbill364")}))
 
+print("\n── NSE, FRED AND CBK'S FX PANEL NOW CARRY A REAL DATE TOO")
+# Before this, freshness() only ever dated the CBK panel, the bill auctions
+# and Trading Economics - NSE, FRED and CBK's FX rates had no entry at all,
+# so the app fell back to whatever date the seed happened to be authored
+# with, forever. A live value with a stale-looking label is the same lie as
+# a stale value that looks live.
+nse_by = {"nse": {"nasi": 238.61, "nse20": 4165.11, "_asof": "18-Sep-2026"}}
+f = kp.freshness(nse_by, {})
+ok("NSE's own statistics date is captured", f.get("nasi", {}).get("asOf") == "2026-09-18",
+   str(f.get("nasi")))
+ok("every NSE figure that came back gets dated, not just one",
+   f.get("nse20", {}).get("asOf") == "2026-09-18", str(f.get("nse20")))
+ok("a fresh NSE pull is not stale", f["nasi"]["stale"] is False, str(f["nasi"]))
+
+fred_by = {"fred": {"brent": 74.2, "_brent_asof": "2026-09-17"}}
+f = kp.freshness(fred_by, {})
+ok("FRED's own observation date is used, not today's date",
+   f.get("brent", {}).get("asOf") == "2026-09-17", str(f.get("brent")))
+
+fx_by = {"cbk": {"kes_usd": 129.61}}
+f = kp.freshness(fx_by, {})
+ok("CBK's FX panel is dated as fetched live, same as the MMF and bond rungs",
+   f.get("kes_usd", {}) == {"asOf": kp.datetime.now(kp.timezone.utc).date().isoformat(),
+                            "ageDays": 0, "stale": False, "why": "fetched live"},
+   str(f.get("kes_usd")))
+
+ok("a garbled NSE date does not crash the run", kp.freshness(
+   {"nse": {"nasi": 238.61, "_asof": "not-a-date"}}, {}) is not None)
+
 print("\n── OLD IS NOT THE SAME AS OVERDUE")
 # A quarterly figure is not published the day the quarter ends. KNBS releases
 # GDP about three months later, so a 155-day-old GDP reading is a normal one.

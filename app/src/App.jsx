@@ -2696,18 +2696,30 @@ function Toggle({ on, onChange, c }) {
 
 /* ---------- feed merge ---------- */
 /* Each rate carries its own publication date. The CBR was set in April; the
-   91-day moves weekly. Stamping every row with the sync date throws that away,
-   so the collector's cbkDates are used where they exist and the seeded label
-   is kept otherwise. A date that says when the number was published is worth
-   more than one that says when it was fetched. */
+   91-day moves weekly. Stamping every row with the sync date throws that
+   away, so the collector's signalDates are used where they exist and the
+   seeded label is kept otherwise. A date that says when the number was
+   published is worth more than one that says when it was fetched.
+
+   signalDates mixes two shapes because its two sources write dates
+   differently: CBK's own homepage text ("11/08/2026", or sometimes just
+   "July,2026" with no day at all) sits alongside the collector's own
+   computed ISO dates ("2026-08-31") for everything freshness() resolves -
+   NSE, FRED, Trading Economics, bill auctions. Before this, only the first
+   shape was ever read, so a value could turn live while its date stayed
+   fixed on whatever the seed was authored with months earlier - correct
+   number, stale-looking label, on every row FRED, NSE and Trading Economics
+   feed. */
 function feedDate(id, feed, fallback) {
-  const d = feed.cbkDates && feed.cbkDates[id];
+  const d = feed.signalDates && feed.signalDates[id];
   if (!d) return fallback;
-  const m = String(d).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!m) return d;
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${+m[1]} ${MON[+m[2] - 1]} ${m[3]}`;
+  const dmy = String(d).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmy) return `${+dmy[1]} ${MON[+dmy[2] - 1]} ${dmy[3]}`;
+  const iso = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return `${+iso[3]} ${MON[+iso[2] - 1]} ${iso[1]}`;
+  return d;
 }
 
 function mergeFeed(seed, feed) {
