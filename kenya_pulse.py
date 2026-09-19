@@ -1779,6 +1779,19 @@ def tables_report(url):
     return 0
 
 
+def stale_alert_line(signals):
+    """score()'s own "stale" flag only fires for a signal that was carried
+    forward this run AND has sat that way past its cadence - the collector
+    answering fine but one publisher going quiet for weeks, which nothing
+    upstream of this used to say out loud. A five-week NSE freeze found only
+    by a phone review is exactly the failure this closes."""
+    stale_signals = [s for s in signals if s.get("stale")]
+    if not stale_signals:
+        return None
+    return "Stale past their own cadence: " + ", ".join(
+        f"{s['label']} ({s['ageDays']}d)" for s in stale_signals)
+
+
 def source_health(by_source):
     """Which of gather()'s named sources returned an actual reading this run,
     not just an entry in the dict. Shared by --sources and the immediate
@@ -2189,6 +2202,9 @@ def main():
     if stale:
         alerts.append("Rates needing a refresh in manual.json: " +
                       ", ".join(r["label"] for r in stale))
+    stale_line = stale_alert_line(signals)
+    if stale_line:
+        alerts.append(stale_line)
     if alerts:
         notify("\n".join(alerts) + "\n\n" + payload["briefing"])
     elif not FAST or any(s["anomaly"] for s in signals):

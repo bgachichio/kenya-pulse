@@ -1816,6 +1816,12 @@ export default function KenyaPulse() {
                               whiteSpace: "nowrap" }) }}>{i.label}</span>
                           <span style={{ fontSize: "0.75rem", color: c.faint }}>
                             {i.asOf}
+                            {/* A source that answers and parses cleanly can still hand back a
+                                figure nobody upstream has refreshed in weeks - reachability is
+                                not correctness. This badge is the one place that distinction
+                                reaches the reader, rather than staying a fact only --sources
+                                would ever surface. */}
+                            {i.stale && <> · <Pill tone="watch" c={c}>Stale</Pill></>}
                           </span>
                         </span>
                         {!cfg.compact && !tiny &&
@@ -2720,6 +2726,7 @@ function mergeFeed(seed, feed) {
         dir: s.dir ?? 0, value: s.value, prior,
         priorLabel: prior == null ? null : "last reading",
         asOf: feed.asOf, src: s.source || "feed", hist,
+        stale: !!s.stale, ageDays: s.ageDays,
         note: "Added by the feed." };
     });
 
@@ -2743,7 +2750,8 @@ function mergeFeed(seed, feed) {
       hist,
       asOf: feedDate(i.id, feed, i.asOf),
       src: s.source === "cbk" ? "CBK" : s.source === "nse" ? "NSE"
-        : s.source === "manual" ? "Typed" : s.source || i.src };
+        : s.source === "manual" ? "Typed" : s.source || i.src,
+      stale: !!s.stale, ageDays: s.ageDays };
   });
   return { ...seed, indicators: [...indicators, ...extra],
     asOf: feed.asOf || seed.asOf, source: "live",

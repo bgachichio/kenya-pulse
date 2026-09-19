@@ -216,5 +216,25 @@ const tinyMove={id:'x',value:9.001,prior:9,dir:1};
 ok('a move too small to show at two decimal places does not claim a colour it cannot show',
    deltaColor(tinyMove,C)===C.faint);
 
+console.log('\n── A SOURCE ANSWERING IS NOT THE SAME AS ITS FIGURE BEING CURRENT');
+/* The NSE incident this section guards: five indices sat on a 17 August
+   reading for five weeks while the collector kept running successfully -
+   score()'s own stale flag caught it, but mergeFeed dropped the flag on the
+   floor the same way it once dropped state, so the app had no way to say so. */
+const staleFeed = mergeFeed(SEED, {asOf: '2026-09-19', signals: [
+  {id: 'nasi', value: 238.61, prior: 238.61, hist: [231.6, 238.13, 238.61],
+   source: 'nse', stale: true, ageDays: 33}]});
+const nasi = staleFeed.indicators.find(i => i.id === 'nasi');
+ok('a signal the collector marks stale carries that through to the app',
+   nasi.stale === true, nasi.stale);
+ok('and its age in days comes along with it', nasi.ageDays === 33, nasi.ageDays);
+const freshFeed = mergeFeed(SEED, {asOf: '2026-09-19', signals: [
+  {id: 'nasi', value: 240.0, prior: 238.61, hist: [238.13, 238.61, 240.0],
+   source: 'nse', stale: false, ageDays: 0}]});
+ok('and a signal the collector is not worried about is not flagged either',
+   freshFeed.indicators.find(i => i.id === 'nasi').stale === false);
+ok('the row itself only shows the badge when the flag is set',
+   /i\.stale\s*&&[\s\S]{0,40}Pill/.test(SRC), 'no stale badge wired into the list row');
+
 console.log(`\n${'═'.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(50)}`);
 process.exit(fail?1:0);

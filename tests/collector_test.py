@@ -468,6 +468,24 @@ ok("when every source comes back empty, none is called live",
 ok("and every one of them is named as dead",
    sorted(dead2) == sorted(everything_down), dead2)
 
+print("\n── A STALE SIGNAL SAYS SO IN THE ALERT, NOT JUST IN --SOURCES")
+# The NSE incident this section guards: five indices carried forward the same
+# 17 August reading for five weeks while the collector kept running and
+# writing a fresh data.json every day. Nothing upstream of --sources said so
+# out loud until a phone review caught it by eye.
+stale_sig = [{"id": "nasi", "label": "NSE All Share", "value": 238.61,
+             "stale": True, "ageDays": 33}]
+line = kp.stale_alert_line(stale_sig)
+ok("a stale signal produces an alert line", line is not None, line)
+ok("naming the indicator", "NSE All Share" in line, line)
+ok("and how many days it has sat there", "33d" in line, line)
+
+fresh_sig = [{"id": "nasi", "label": "NSE All Share", "value": 240.0,
+             "stale": False, "ageDays": 0}]
+ok("a signal within its own cadence produces no alert at all",
+   kp.stale_alert_line(fresh_sig) is None)
+ok("and neither does an empty run", kp.stale_alert_line([]) is None)
+
 print("\n── A SOURCE THAT ANSWERS, PARSES, AND IS STILL STALE")
 # The failure that hid for weeks and that neither --health nor a parse check
 # sees: serrarigroup answered, the table parsed, 8.97% came back - and the
