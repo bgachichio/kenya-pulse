@@ -30,8 +30,9 @@ const compiled=babel.transformSync(SRC,
 fs.writeFileSync('coherence.mjs.js',
   compiled+'\nmodule.exports.mergeFeed=mergeFeed;'+
   '\nmodule.exports.SEED=SEED;\nmodule.exports.changeSentence=changeSentence;'+
-  '\nmodule.exports.levels=levels;\n');
-const {mergeFeed,SEED,changeSentence}=require('./coherence.mjs.js');
+  '\nmodule.exports.levels=levels;\nmodule.exports.stateOf=stateOf;'+
+  '\nmodule.exports.deltaColor=deltaColor;\n');
+const {mergeFeed,SEED,changeSentence,stateOf,deltaColor}=require('./coherence.mjs.js');
 let pass=0,fail=0;
 const ok=(n,c,d='')=>{c?(pass++,console.log(`  ✓ ${n}`)):(fail++,console.log(`  ✗ ${n} ${d}`))};
 
@@ -185,6 +186,35 @@ ok('the app says colour is not direction', /Colour is not direction/.test(SRC));
 ok('and explains why a long line can sit above a change of zero',
    /a long line can sit above\s+a change of zero/.test(SRC));
 ok('it gives the worked example', /Inflation falling is a line going down/.test(SRC));
+
+console.log('\n── A LEVEL IN TROUBLE IS NOT THE SAME CLAIM AS A MOVE IN TROUBLE');
+/* The bug this section guards: a PMI below its own band stays red whatever it
+   does next, because the band is a fact about the level. Reusing that same
+   red to paint an honestly-zero change made a truthful "nothing happened"
+   figure look like bad news. The dot and the change now answer different
+   questions and take their colour from different places. */
+const C={good:'G',bad:'B',faint:'F'};
+const pmiStuck={id:'pmi',value:49.7,prior:49.7,dir:1,band:[50,100]};
+ok('a value outside its band stays flagged even with zero delta',
+   stateOf(pmiStuck)==='stress');
+ok('but the change figure for that same zero delta is neutral, not the dot colour',
+   deltaColor(pmiStuck,C)===C.faint);
+
+const rising={id:'x',value:10,prior:9,dir:1};
+ok('a rising series with a favourable direction reads good',
+   deltaColor(rising,C)===C.good);
+const falling={id:'x',value:9,prior:10,dir:1};
+ok('and the same series falling reads bad',
+   deltaColor(falling,C)===C.bad);
+const noDirection={id:'x',value:9,prior:10,dir:0};
+ok('a series with no defined direction is neutral regardless of the move',
+   deltaColor(noDirection,C)===C.faint);
+const singlePoint={id:'x',value:9,prior:null,dir:1};
+ok('a single reading with nothing to compare against is neutral, not coloured as a fall',
+   deltaColor(singlePoint,C)===C.faint);
+const tinyMove={id:'x',value:9.001,prior:9,dir:1};
+ok('a move too small to show at two decimal places does not claim a colour it cannot show',
+   deltaColor(tinyMove,C)===C.faint);
 
 console.log(`\n${'═'.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(50)}`);
 process.exit(fail?1:0);

@@ -899,6 +899,19 @@ function stateOf(i) {
   if (Math.abs(m) < 0.01) return "steady";
   return (m > 0) === (i.dir > 0) ? "good" : "stress";
 }
+/* The dot's colour answers "is this level a concern" - a sub-50 PMI stays red
+   whether or not it just moved, because a band violation is a fact about the
+   figure, not about this run. The change beside it answers a different
+   question - did anything happen since the last reading - so it needs its
+   own colour, tied to the direction of the move itself, or neutral where
+   there was no move. Painting a genuine 0.00 in the dot's alarm colour reads
+   as a contradiction; it is really two true things told in one colour. */
+function deltaColor(i, c) {
+  if (i.prior == null || !i.dir) return c.faint;
+  const d = i.value - i.prior;
+  if (Math.abs(d) < 0.005) return c.faint;
+  return (d > 0) === (i.dir > 0) ? c.good : c.bad;
+}
 const fmt = (v, unit, dp) => {
   if (v == null) return "-";
   const d = dp != null ? dp : Math.abs(v) >= 1000 ? 0 : Math.abs(v) >= 100 ? 2 : 2;
@@ -1771,8 +1784,7 @@ export default function KenyaPulse() {
                       </div>
                       {i.prior != null && (
                         <div style={{ fontSize: "0.75rem", marginTop: 0,
-                          color: i.state === "stress" ? c.bad
-                            : i.state === "good" ? c.good : c.faint }}>
+                          color: deltaColor(i, c) }}>
                           {i.value > i.prior ? "↑" : i.value < i.prior ? "↓" : "–"}
                           {" "}{fmt(Math.abs(i.value - i.prior), i.unit)}
                         </div>
@@ -1813,7 +1825,7 @@ export default function KenyaPulse() {
                             letterSpacing: "-.015em" }}>{fmt(i.value, i.unit)}</span>
                           {i.prior != null && (
                             <>
-                              <span style={{ fontSize: "0.75rem", color: col }}>
+                              <span style={{ fontSize: "0.75rem", color: deltaColor(i, c) }}>
                                 {i.value > i.prior ? "+" : ""}{fmt(i.value - i.prior, "")}
                               </span>
                               {/* A number with no stated basis is a riddle. The line
