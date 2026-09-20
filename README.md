@@ -4,7 +4,7 @@
 
 **A dipstick on the Kenyan economy, and a read on where money is being paid.**
 
-Thirty-four published indicators from free sources. Four layers of signal.
+Thirty-one published indicators from free sources. Four layers of signal.
 One JSON file. No database, no accounts, no paid feeds.
 
 `Python 3` · `React 19` · `Vite` · `PWA` · `MIT`
@@ -69,9 +69,9 @@ and rollback.
 - Pulls its sources in one run (~40 s) and writes `public/data.json`.
 - `--health` checks every source is reachable; `--dry` prints the full ladder,
   chain and relationships without writing anything.
-- `manual.json` (copy `manual.example.json`) holds up to five typed figures —
-  NPLs, reserves, import cover, debt/GDP, current account. All optional; each
-  falls back to an annual source, relabelled where the measure differs.
+- `manual.json` (copy `manual.example.json`) holds up to three typed figures —
+  NPLs, debt/GDP, current account. All optional; NPLs falls back to an annual
+  World Bank source when it goes stale.
 - Where two sources disagree, **nothing is averaged**: one figure is kept, the
   other shown beside it in the app with the reason.
 - If a source fails, the last good reading is carried forward and labelled

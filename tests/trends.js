@@ -83,10 +83,10 @@ console.log('\n── LATEST YEAR LABELLED (cab ends 2024, not 2025)');
 ok('names the year of the latest reading', t.includes('2024'), '');
 ok('latest value is the 2024 figure', t.includes('-1.29'));
 
-console.log('\n── ALL TEN SERIES RENDER');
+console.log('\n── ALL NINE SERIES RENDER');
 let allOk=true, broke=null;
 for(const label of ['GDP growth','Inflation','GDP','GDP a head','Exports','Imports',
-                    'Current account','Private credit','FX reserves','Remittances']){
+                    'Current account','Private credit','Remittances']){
   const b=B(r).filter(x=>txt(x).trim()===label)[0];
   if(!b){allOk=false;broke=label+' missing';break;}
   try{ TR.act(()=>b.props.onClick());

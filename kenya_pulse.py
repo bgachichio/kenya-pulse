@@ -116,8 +116,6 @@ REGISTER = {
     "kes_usd":   ("KES per USD",                  "External", "",       -1, "daily"),
     "kes_eur":   ("KES per EUR",                  "External", "",       -1, "daily"),
     "kes_gbp":   ("KES per GBP",                  "External", "",       -1, "daily"),
-    "reserves":  ("FX reserves",                  "External", "$bn",    +1, "weekly"),
-    "cover":     ("Import cover",                 "External", " months",+1, "weekly"),
     "cab":       ("Current account",              "External", "% GDP",  +1, "quarterly"),
 
     "gdp":       ("GDP growth",                   "Activity", "%",      +1, "quarterly"),
@@ -131,7 +129,6 @@ REGISTER = {
 
     "debt":      ("Public debt stock",            "Fiscal",   " KES tn",-1, "monthly"),
     "debt_gdp":  ("Public debt to GDP",           "Fiscal",   "%",      -1, "monthly"),
-    "debtserv":  ("Debt service to revenue",      "Fiscal",   "%",      -1, "annual"),
 
     "fed_funds": ("US Fed funds",                 "Global",   "%",       0, "daily"),
     "us10y":     ("US 10-year",                   "Global",   "%",       0, "daily"),
@@ -161,11 +158,10 @@ PRECEDENCE = {
     "npl": ["manual"],
     "pmi": ["te", "manual"], "debt": ["te", "manual"], "gdp": ["te", "manual", "imf"],
     "kes_usd": ["cbk", "fx"], "kes_eur": ["cbk", "fx"], "kes_gbp": ["cbk", "fx"],
-    "reserves": ["manual"], "cover": ["manual"],
     "cab": ["manual", "imf"],
     "nasi": ["nse"], "nse20": ["nse"], "nse25": ["nse"],
     "bank_idx": ["nse"], "mktcap": ["nse"],
-    "debt_gdp": ["manual", "imf"], "debtserv": ["manual"],
+    "debt_gdp": ["manual", "imf"],
     "fed_funds": ["fred"], "us10y": ["fred"], "brent": ["fred"],
     "world_gdp": ["imf"], "ssa_gdp": ["imf"],
 }
@@ -174,31 +170,18 @@ TOLERANCE = {"gdp": 0.08, "cab": 0.15, "debt_gdp": 0.03, "kes_usd": 0.01,
              "inflation": 0.05, "_default": 0.05}
 
 # Annual World Bank series used only as fallbacks when a typed figure goes
-# stale. They are one to two years behind and two of them measure a slightly
-# different quantity, which is why they never override a current typed value.
+# stale. It is one to two years behind, which is why it never overrides a
+# current typed value.
 # key: (code, caveat, relabel)
-#
-# `relabel` is the important column. Two of these fallbacks do not measure the
-# same thing as the figure they stand in for — World Bank reserves are total
-# rather than the CBK usable figure, and their debt-service series counts
-# interest without principal. Substituting them under the original name would
-# swap the quantity while keeping the label, which is the precise way a
-# dashboard tells a quiet lie. So when the measure changes, the name changes
-# with it, and the reader can see that it did.
 WB_FALLBACK = {
-    "npl":      ("FB.AST.NPER.ZS",    "World Bank annual, same measure", None),
-    "cover":    ("FI.RES.TOTL.MO",    "World Bank annual, same measure", None),
-    "reserves": ("FI.RES.TOTL.CD",    "World Bank annual — total reserves, which "
-                                      "includes gold and SDRs", "Total FX reserves"),
-    "debtserv": ("GC.XPN.INTP.RV.ZS", "World Bank annual — interest only, without "
-                                      "principal repayment", "Interest to revenue"),
+    "npl": ("FB.AST.NPER.ZS", "World Bank annual, same measure", None),
 }
 
 WB_CODES = {"gdp_growth": "NY.GDP.MKTP.KD.ZG", "inflation": "FP.CPI.TOTL.ZG",
             "gdp_usd": "NY.GDP.MKTP.CD", "gdp_pc": "NY.GDP.PCAP.CD",
             "exports": "NE.EXP.GNFS.ZS", "imports": "NE.IMP.GNFS.ZS",
             "cab": "BN.CAB.XOKA.GD.ZS", "credit": "FS.AST.PRVT.GD.ZS",
-            "reserves": "FI.RES.TOTL.CD", "remit": "BX.TRF.PWKR.CD.DT"}
+            "remit": "BX.TRF.PWKR.CD.DT"}
 
 IMF_KENYA = {"gdp_growth": "NGDP_RPCH", "inflation": "PCPIPCH",
              "debt_gdp": "GGXWDG_NGDP", "cab": "BCA_NGDPD",
@@ -795,7 +778,6 @@ MANUAL_CADENCE = {
     # kind genuinely should have been replaced.
     "pmi": 45,            # monthly, out in the first week of the next month
     "npl": 90,            # monthly, CBK bank supervision runs a month or two behind
-    "reserves": 21, "cover": 21,          # weekly, CBK publishes on Thursdays
     # The 182-day auctions weekly. Letting a typed one stand for three weeks
     # meant three missed auctions could pass without the app saying a word.
     "tbill182": 10, "tbill364": 45, "bond10": 45, "infra": 45,
@@ -803,7 +785,6 @@ MANUAL_CADENCE = {
     "debt_gdp": 200,      # quarterly in practice, and lags the debt stock
     "gdp": 200,           # quarterly, KNBS about three months behind the quarter
     "cab": 200,           # quarterly balance of payments, same shape
-    "debtserv": 400,      # annual
 }
 
 
@@ -820,9 +801,9 @@ SHEET_TAB = os.environ.get("KP_SHEET_TAB", "").strip()   # optional gid
 # ladder silently — which is worse than a missing one.
 PLAUSIBLE = {
     "npl": (0, 60), "pmi": (20, 80),
-    "lending": (0, 40), "reserves": (0, 60), "cover": (0, 24),
+    "lending": (0, 40),
     "cab": (-30, 20), "gdp": (-20, 25), "debt": (0, 100), "debt_gdp": (0, 250),
-    "debtserv": (0, 200), "tbill": (0, 40), "tbill182": (0, 40), "tbill364": (0, 40),
+    "tbill": (0, 40), "tbill182": (0, 40), "tbill364": (0, 40),
     "bond10": (0, 40), "infra": (0, 40), "mmf_top": (0, 40), "mmf_avg": (0, 40),
 }
 
@@ -914,8 +895,8 @@ def src_sheet():
 def src_manual():
     """
     What only exists inside a PDF or behind a paywall: the Stanbic PMI, the
-    longer bills, the 10-year bond, NPLs, reserves, the debt stock, quarterly
-    GDP and your own money market rate.
+    longer bills, the 10-year bond, NPLs, the debt stock, quarterly GDP and
+    your own money market rate.
 
     Each entry may carry the date it was published:
 
@@ -1002,7 +983,7 @@ def apply_fallbacks(values, prov, fresh, spine):
         if typed_ok:
             continue
         year = max(series)
-        v = series[year] / 1e9 if key == "reserves" else series[year]
+        v = series[year]
         values[key] = round(v, 3)
         prov[key] = "worldbank"
         fresh[key] = {"asOf": f"{year}-12-31", "ageDays": None, "stale": False,
@@ -1526,7 +1507,7 @@ def briefing(sig, ladder, breaks, chain, leading, asof):
          f"<b>Policy</b>    CBR {f('cbr')}, KESONIA {f('kesonia')}, 91-day {f('tbill')}",
          f"<b>Prices</b>    inflation {f('inflation')}",
          f"<b>Banking</b>   lending {f('lending')}, deposit {f('deposit')}, NPLs {f('npl')}",
-         f"<b>External</b>  KES/USD {f('kes_usd')}, reserves {f('reserves')}",
+         f"<b>External</b>  KES/USD {f('kes_usd')}",
          f"<b>Markets</b>   NASI {f('nasi')}, cap {f('mktcap')}",
          f"<b>Fiscal</b>    debt {f('debt_gdp')} of GDP",
          f"<b>Global</b>    Fed {f('fed_funds')}, US 10yr {f('us10y')}, SSA {f('ssa_gdp')}", ""]
@@ -1620,8 +1601,6 @@ def compact_log():
 RELEASES = {
     "pmi":      ("Stanbic PMI",           "S&P Global", "first working day"),
     "npl":      ("Non-performing loans",  "CBK",      "monthly bulletin"),
-    "reserves": ("FX reserves",           "CBK",      "weekly"),
-    "cover":    ("Import cover",          "CBK",      "weekly"),
     "tbill182": ("182-day bill",          "CBK",      "weekly auction"),
     "tbill364": ("364-day bill",          "CBK",      "monthly auction"),
     "bond10":   ("10-year bond",          "CBK",      "monthly"),
@@ -1630,7 +1609,6 @@ RELEASES = {
     "debt_gdp": ("Debt to GDP",           "Treasury", "mid-month"),
     "gdp":      ("Quarterly GDP",         "KNBS",     "~10 weeks after quarter end"),
     "cab":      ("Current account",       "CBK",      "quarterly"),
-    "debtserv": ("Debt service to revenue", "Treasury", "annual"),
 }
 
 
@@ -1809,6 +1787,22 @@ def tables_report(url):
         for label, href in files[:10]:
             print(f"    {label or '(no text)'} -> {href}")
     return 0
+
+
+def fallback_alert_line(fallbacks):
+    """A typed figure that has gone stale degrades gracefully to a World Bank
+    annual series - apply_fallbacks() marks that substitution "not stale",
+    since the substituted value is itself current, and carry_forward() never
+    sees a gap either, since values[key] stays populated throughout. Both
+    staleness layers go quiet exactly when they should be loudest. Reserves
+    sat on a 13 August typed reading for five weeks, quietly wearing a World
+    Bank annual figure the whole time, and nothing said so until a LinkedIn
+    post pointed at the dashboard. The substitution itself is the signal this
+    alert exists to speak for."""
+    if not fallbacks:
+        return None
+    names = [f.get("relabel") or REGISTER.get(f["id"], (f["id"],))[0] for f in fallbacks]
+    return "Degraded to an annual fallback, needs a fresh typed figure: " + ", ".join(names)
 
 
 def stale_alert_line(signals):
@@ -2246,6 +2240,9 @@ def main():
     stale_line = stale_alert_line(signals)
     if stale_line:
         alerts.append(stale_line)
+    fb_line = fallback_alert_line(fallbacks)
+    if fb_line:
+        alerts.append(fb_line)
     if alerts:
         notify("\n".join(alerts) + "\n\n" + payload["briefing"])
     elif not FAST or any(s["anomaly"] for s in signals):

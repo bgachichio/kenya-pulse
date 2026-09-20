@@ -534,7 +534,6 @@ const ANNUAL = {
   imports:    [30.27,30.05,32.87,35.97,32.25,31.98,34.91,27.17,30.27,36.85,31.76,29.67,29.7,25.2,21.61,23.26,21.87,20.33,18.96,21.89,24.32,24.22,23.15,21.76],
   cab:        [-0.9,0.89,-0.82,-1.35,-1.98,-3.23,-5.52,-3.99,-5.22,-8.15,-7.48,-7.85,-9.34,-6.3,-5.4,-7,-5.41,-5.24,-3.27,-4.6,-4.2,-2.55,-1.29,N],
   credit:     [25.86,25.16,27.29,26.28,22.89,23.05,25.38,21.88,23.99,27.37,26.4,28.33,34.52,36.7,35.57,33.15,31.2,30.83,32.15,31.12,31.26,31.8,N,N],
-  reserves:   [1.07,1.48,1.52,1.8,2.42,3.36,2.88,3.85,4.32,4.27,5.71,6.6,7.87,7.51,7.55,7.33,8.16,9.12,8.3,9.49,7.97,7.34,10.07,12.39],
   remit:      [0.06,0.07,0.38,0.42,0.57,0.65,0.67,0.63,0.69,0.93,1.21,1.3,1.44,1.57,1.74,1.96,2.72,2.84,3.11,3.77,4.06,4.23,5,N],
 };
 const ANNUAL_META = {
@@ -546,7 +545,6 @@ const ANNUAL_META = {
   imports:    { label: "Imports", unit: "% GDP", dir: -1 },
   cab:        { label: "Current account", unit: "% GDP", dir: 1 },
   credit:     { label: "Private credit", unit: "% GDP", dir: 1 },
-  reserves:   { label: "FX reserves", unit: "$bn", dir: 1 },
   remit:      { label: "Remittances", unit: "$bn", dir: 1 },
 };
 
@@ -672,20 +670,6 @@ const SEED = {
       why: "Matters for UK trade, tuition and the large Kenyan community in Britain sending money home.",
       hist: [173.4,174.0,174.5,174.2,174.8,175.11], note: "Official CBK indicative rate." },
 
-    { id: "cover", label: "Import cover", group: "External", unit: " months", dir: 1,
-      value: 6.3, prior: 5.6, priorLabel: "June", asOf: "Aug 2026", src: "Typed",
-      band: [4, 24], bandLabel: "Statutory floor 4 months",
-      what: "How many months of imports the country could pay for out of reserves alone.",
-      why: "The practical measure of the external buffer. Below four months and the Central Bank starts losing room to defend the shilling.",
-      hist: [4.6,4.9,5.1,5.3,5.6,6.0,6.3],
-      note: "Comfortably above the four-month statutory floor." },
-
-    { id: "reserves", label: "FX reserves", group: "External", unit: "$bn", dir: 1,
-      value: 15.25, prior: 13.2, priorLabel: "June", asOf: "Aug 2026", src: "Typed",
-      hist: [9.8,10.4,11.2,11.8,12.4,13.2,14.1,15.25],
-      what: "The foreign currency the Central Bank holds.",
-      why: "The country's buffer. It is what defends the shilling in a bad month and pays for imports when export earnings fall short.",
-      note: "6.3 months of import cover against a 4-month floor. The strongest buffer in a decade." },
     { id: "cab", label: "Current account", group: "External", unit: "% GDP", dir: 1,
       value: -3.0, prior: -1.9, priorLabel: "a year ago", asOf: "12m to Jun 2026", src: "Typed",
       hist: [-1.9,-2.1,-2.4,-2.7,-3],
@@ -752,14 +736,6 @@ const SEED = {
       what: "Government debt measured against the size of the economy.",
       why: "The standard way of asking whether a debt is large relative to the ability to repay it. Parliament's own ceiling is 55%.",
       note: "14.9pp above Parliament's anchor. The IMF sees 71.6% this year and no inflection to 2031." },
-    { id: "debtserv", label: "Debt service to revenue", group: "Fiscal", unit: "%", dir: -1,
-      value: 69, prior: 63, priorLabel: "FY23/24", asOf: "FY24/25", src: "Typed",
-      band: [0, 30], bandLabel: "IMF comfort threshold 30%",
-      hist: [48,55,59,63,69],
-      what: "The share of government revenue spent on interest and repayments.",
-      why: "The most binding number in Kenyan public finance. Every shilling here is one that cannot build a road or staff a clinic.",
-      note: "KES 1.72tn against ordinary revenue. More than twice the threshold, and the binding constraint on everything else." },
-
     { id: "fed_funds", label: "US Fed funds", group: "Global", unit: "%", dir: 0,
       value: 3.63, prior: 4.33, priorLabel: "a year ago", asOf: "13 Aug 2026", src: "FRED",
       hist: [5.33,5.33,4.83,4.58,4.33,4.33,4.08,3.88,3.63],
@@ -884,7 +860,7 @@ const SOURCES = [
   { name: "FRED, St Louis Fed", covers: "US Fed funds and the 10-year", key: false },
   { name: "IMF DataMapper", covers: "Kenya, world, Sub-Saharan Africa and US, with forecasts to 2031", key: false },
   { name: "World Bank", covers: "Annual spine back to 2002", key: false },
-  { name: "Typed by you", covers: "Stanbic PMI, longer bills, the 10-year, NPLs, reserves, debt, your MMF rate", key: false },
+  { name: "Typed by you", covers: "Stanbic PMI, longer bills, the 10-year, NPLs, debt, your MMF rate", key: false },
 ];
 
 /* ===========================================================================
@@ -2790,7 +2766,7 @@ function buildBrief(inds, ladder, breaks, asOf) {
     `Best: ${best.label} ${best.gross.toFixed(2)}% gross -> ${best.real > 0 ? "+" : ""}${best.real.toFixed(2)}% real`,
     `Worst: ${worst.label} ${worst.gross.toFixed(2)}% gross -> ${worst.real.toFixed(2)}% real`,
     `Real is what is left after withholding tax and inflation.`,
-    `Debt ${f("debt_gdp")} of GDP · Debt service ${f("debtserv")} of revenue`];
+    `Debt ${f("debt_gdp")} of GDP`];
   if (off.length) {
     L.push(`Off range: ${off.map(b => `${b.name} ${b.value}${b.unit}`).join(" · ")}`);
   }

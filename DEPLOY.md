@@ -171,9 +171,9 @@ ssh $K $V "sudo chown -R kpulse:kpulse ~/kenya-pulse && \
 ssh $K $V "cp ~/kenya-pulse/manual.example.json ~/kenya-pulse/manual.json && nano ~/kenya-pulse/manual.json"
 ```
 
-Five keys: `npl`, `reserves`, `cover`, `debt_gdp`, `cab`. Correct the values and
-dates. All five are optional — leave the file empty and each falls back to an
-annual source, relabelled where the measure differs.
+Three keys: `npl`, `debt_gdp`, `cab`. Correct the values and dates. All three
+are optional — leave the file empty and NPLs falls back to an annual World
+Bank source; `debt_gdp` and `cab` fall back to IMF annual figures.
 
 ## A3 · Check every source
 
@@ -451,7 +451,7 @@ Open `https://kenya-pulse-app.vercel.app`, pull to refresh twice.
 |---|---|
 | Header icons | Drawn sun and gear, not emoji |
 | Tap targets | Icon buttons and the settings switch all 44px |
-| Pulse | No core inflation, no private credit growth. 182-day, 364-day, discount window, NSE 25, EUR, GBP, import cover all present |
+| Pulse | No core inflation, no private credit growth, no reserves, cover or debt service. 182-day, 364-day, discount window, NSE 25, EUR, GBP all present |
 | Edge | Ten rungs, infra bonds ~11.77%, no OLD badges |
 | Chain | Five links: policy → overnight → 91-day → lending → GDP |
 | Trends | 24 bars, y-axis, both year labels |

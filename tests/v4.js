@@ -64,14 +64,14 @@ let covered=0, missing=[];
 const SRC=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8');
 // core inflation and private credit growth were removed — no automatic source exists
 for(const id of ['cbr','kesonia','tbill','tbill182','tbill364','discount','inflation','lending',
-  'deposit','savings','npl','kes_usd','kes_eur','kes_gbp','cover','reserves','cab','gdp','pmi',
-  'nasi','nse20','nse25','bank_idx','mktcap','debt','debt_gdp','debtserv','fed_funds','us10y',
+  'deposit','savings','npl','kes_usd','kes_eur','kes_gbp','cab','gdp','pmi',
+  'nasi','nse20','nse25','bank_idx','mktcap','debt','debt_gdp','fed_funds','us10y',
   'ssa_gdp','world_gdp','repo','bond10']){
   const i=SRC.indexOf(`{ id: "${id}",`);
   const seg=SRC.slice(i, i+2400);
   if(seg.includes('what:')&&seg.includes('why:'))covered++; else missing.push(id);
 }
-ok(`all 33 indicators have plain language`, covered===33, missing.join(','));
+ok(`all 30 indicators have plain language`, covered===30, missing.join(','));
 
 console.log('\n── DEEP LINKS');
 go(r,'Trends');
@@ -87,12 +87,12 @@ COPYCHECK = shareBtn;
 HASH='#edge';
 let r2=fresh();
 ok('opens on the tab from the URL', txt(r2.toJSON()).includes('Briefing'), '');
-HASH='#trends/reserves';
+HASH='#trends/credit';
 let r3=fresh();
-ok('opens on the series from the URL', txt(r3.toJSON()).includes('FX reserves'), '');
-HASH='#pulse/debtserv';
+ok('opens on the series from the URL', txt(r3.toJSON()).includes('Private credit'), '');
+HASH='#pulse/debt_gdp';
 let r4=fresh();
-ok('expands the indicator from the URL', txt(r4.toJSON()).includes('binding number'), '');
+ok('expands the indicator from the URL', txt(r4.toJSON()).includes("Parliament's own ceiling"), '');
 HASH='';
 
 console.log('\n── STALE RATES ON THE LADDER');

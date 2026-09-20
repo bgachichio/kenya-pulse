@@ -323,10 +323,8 @@ ok("so does the current account", C["cab"] >= 190, str(C["cab"]))
 ok("and debt to GDP", C["debt_gdp"] >= 190, str(C["debt_gdp"]))
 ok("the monthly debt stock allows for the Treasury's lag",
    110 <= C["debt"] <= 150, str(C["debt"]))
-ok("an annual figure gets a year and a bit", C["debtserv"] >= 365, str(C["debtserv"]))
 ok("but a weekly auction still gets days, not months",
    C["tbill182"] <= 14, str(C["tbill182"]))
-ok("and weekly reserves stay tight", C["reserves"] <= 21, str(C["reserves"]))
 ok("every threshold is longer than the cycle it guards",
    all(C[k] > kp.STALE_DAYS[kp.REGISTER[k][4]] * 0.9
        for k in ("gdp", "cab", "debt", "npl") if k in C and k in kp.REGISTER),
@@ -400,9 +398,9 @@ kp.src_te = lambda: ({"pmi": 50.1}, {})
 kp.src_fx = lambda: {}
 kp.src_imf = lambda: ({}, {})
 kp.src_worldbank = lambda: ({}, {})
-kp.src_manual = lambda: ({"npl": 16.4, "reserves": 10.2, "cover": 4.9,
+kp.src_manual = lambda: ({"npl": 16.4,
                           "cab": -3.0, "gdp": 5.3, "debt": 11.6,
-                          "debt_gdp": 69.9, "debtserv": 61.0,
+                          "debt_gdp": 69.9,
                           "tbill182": 9.0, "tbill364": 9.5}, {})
 kp.src_sheet = lambda: ({}, {}, [])
 kp.FAST = True
@@ -423,7 +421,7 @@ ok("and the indicator it feeds is flagged as having fallen back",
 
 # The false positive this test exists for: manual is the FIRST choice for
 # several indicators, so a manual figure there is the system working.
-for ind in ("cab", "debt_gdp", "npl", "reserves", "cover"):
+for ind in ("cab", "debt_gdp", "npl"):
     assert kp.PRECEDENCE.get(ind, ["manual"])[0] == "manual", ind
 ok("an indicator whose first choice is a typed figure is not flagged",
    not re.search(r"cab .*fell back", out) and not re.search(r"debt_gdp .*fell back", out),
@@ -436,13 +434,12 @@ ok("and cannot exceed the register it counts against",
 ok("keys collected but not registered are listed separately, not counted",
    "collected but not registered" in out and "mmf_top" in out, "")
 
-# debtserv has no live source by design and is filled from a World Bank annual
-# series with a caveat. Reporting it as MISSING sent someone looking for a
-# figure the app already had.
+# npl is the only remaining World Bank fallback and has no live source, so a
+# typed figure going missing is filled from an annual series with a caveat.
+# Reporting it as MISSING sent someone looking for a figure the app already had.
 _prev_manual = kp.src_manual
-kp.src_manual = lambda: ({"npl": 16.4, "reserves": 10.2, "cover": 4.9,
-                          "cab": -3.0, "gdp": 5.3, "debt": 11.6,
-                          "debt_gdp": 69.9}, {})          # no debtserv typed
+kp.src_manual = lambda: ({"cab": -3.0, "gdp": 5.3, "debt": 11.6,
+                          "debt_gdp": 69.9}, {})          # no npl typed
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     kp.sources_report()
@@ -450,19 +447,19 @@ out_fb = buf.getvalue()
 kp.src_manual = _prev_manual
 
 ok("a key with an annual fallback is not called missing",
-   not re.search(r"debtserv.*MISSING", out_fb),
-   [l for l in out_fb.splitlines() if "debtserv" in l])
+   not re.search(r"npl.*MISSING", out_fb),
+   [l for l in out_fb.splitlines() if "npl" in l])
 ok("it is described as filled by the fallback instead",
-   re.search(r"debtserv.*annual fallback fills it", out_fb) is not None,
-   [l for l in out_fb.splitlines() if "debtserv" in l])
+   re.search(r"npl.*annual fallback fills it", out_fb) is not None,
+   [l for l in out_fb.splitlines() if "npl" in l])
 ok("and the summary says where that figure comes from",
    "World Bank annual series, relabelled and caveated" in out_fb, "")
 ok("a key with no fallback at all is still called missing",
    "world_gdp" in out_fb.split("missing entirely")[1][:60]
    if "missing entirely" in out_fb else False,
    out_fb.split("missing entirely")[1][:60] if "missing entirely" in out_fb else "none")
-ok("debtserv is not in that missing list",
-   "debtserv" not in out_fb.split("missing entirely")[1][:80]
+ok("npl is not in that missing list",
+   "npl" not in out_fb.split("missing entirely")[1][:80]
    if "missing entirely" in out_fb else True, "")
 
 # "is the connection working" is a different question from "is the figure
@@ -523,10 +520,10 @@ print("\n── A SOURCE THAT ANSWERS, PARSES, AND IS STILL STALE")
 kp.src_serrari_bills = lambda: {"tbill182": 8.97, "tbill364": 9.04,
                                 "_asof": "2026-07-16"}
 kp.src_te = lambda: ({"pmi": 50.1}, {"pmi": "2026-08-01"})
-kp.src_manual = lambda: ({"npl": 16.4, "reserves": 10.2, "cover": 4.9,
+kp.src_manual = lambda: ({"npl": 16.4,
                           "cab": -3.0, "gdp": 5.3, "debt": 11.6,
-                          "debt_gdp": 69.9, "debtserv": 61.0},
-                         {"npl": "2026-08-20", "reserves": "2026-08-25"})
+                          "debt_gdp": 69.9},
+                         {"npl": "2026-08-20"})
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     kp.sources_report()
@@ -813,7 +810,7 @@ sig_rich = [
     _sig("tbill", 8.7687, "%", 0.02), _sig("inflation", 6.6, "%", 0.2),
     _sig("lending", 14.39, "%", 0.0), _sig("deposit", 6.93, "%", 0.01),
     _sig("npl", 14.6, "%", 0.0), _sig("kes_usd", 129.43, "", 0.05),
-    _sig("reserves", 12.394, "$bn", -0.12), _sig("nasi", 248.98, "", -2.05),
+    _sig("nasi", 248.98, "", -2.05),
     _sig("mktcap", 4178.45, " KES bn", 30.5), _sig("debt_gdp", 69.9, "%", 0.0),
     _sig("fed_funds", 3.63, "%", 0.0), _sig("us10y", 4.78, "%", 0.01),
     _sig("ssa_gdp", 4.3, "%", 0.0),
@@ -863,7 +860,7 @@ ok("every section is labelled in bold, and every tag closes",
 ok("a rising reading gets an up arrow", "8.7507% ▲" in out, out)
 ok("an unchanged reading gets no arrow at all",
    "8.75% ▲" not in out and "8.75% ▼" not in out, out)
-ok("a falling reading gets a down arrow", "12.394$bn ▼" in out, out)
+ok("a falling reading gets a down arrow", "248.98 ▼" in out, out)
 ok("the beat-inflation count is stated once, not twice as two paragraphs used to",
    "8 of 10 beat inflation" in out and out.count("beat inflation") == 1, out)
 ok("the off-range line carries the mechanism, not just the number",

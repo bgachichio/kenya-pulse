@@ -39,7 +39,7 @@ python3 collector_test.py
 | persist | Mount → change → unmount → remount with surviving storage |
 | storage2 | Diagnostics, blocked storage, schema stamping, debounce |
 | mobile | 320 / 360 / 390 / 412 / 768px, tab geometry, no overflow |
-| trends | Chart maths, decade averages, all ten series |
+| trends | Chart maths, decade averages, all nine series |
 | share | Hard-coded feed, hidden settings row, no branding leaks |
 | v4 | Plain language, deep links, staleness, break provenance |
 | ui | Grouped-list structure, typography, motion, tap targets |
