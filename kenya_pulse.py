@@ -1318,14 +1318,24 @@ def build_breaks(v, spine, hist):
 
         # A historical row missing an input simply has no value for this
         # relationship. Expected as the log fills in, not an error.
-        past = []
+        # The log takes a snapshot every run, but a monthly series (the lending
+        # rate) or a bi-monthly one (the CBR) repeats the same print for weeks.
+        # Counting each repeat as a reading made 39 snapshots of two prints look
+        # like history and collapsed the range to 5.63-5.64. Only a change is a
+        # new observation, so runs of the same value count once.
+        past, prev = [], None
         for h in hist:
             try:
                 x = spec["calc"](h.get("values", {}), spine)
             except (KeyError, TypeError, ZeroDivisionError):
                 continue
-            if x is not None:
-                past.append(x)
+            if x is None:
+                continue
+            key = round(x, 6)
+            if key == prev:
+                continue
+            past.append(x)
+            prev = key
 
         if len(past) >= DERIVE_MIN:
             sp = sorted(past)
@@ -1347,10 +1357,10 @@ def build_breaks(v, spine, hist):
                     "normalHi": round(hi, 2), "state": state, "reading": reading,
                     "why": spec["why"], "basis": basis, "n": n,
                     "basisNote": (f"Range is the 10th to 90th percentile of {n} "
-                                  f"readings this system has logged.")
+                                  f"distinct readings this system has logged.")
                                  if basis == "derived" else
                                  (f"Range read off published Kenyan history, not yet "
-                                  f"computed. {n} of {DERIVE_MIN} readings logged.")})
+                                  f"computed. {n} of {DERIVE_MIN} distinct readings logged.")})
     return out
 
 

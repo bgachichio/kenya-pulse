@@ -249,14 +249,19 @@ def _fresh(cbkbills, sbills, cbk_tbill=None):
           "cbk": ({"tbill": cbk_tbill} if cbk_tbill is not None else {})}
     return kp.freshness(by, {})
 
-PANEL = {"tbill": 8.7692, "tbill182": 8.94, "tbill364": 9.0323, "_asof": "2026-08-27"}
+# Dated relative to today: freshness() measures age against the real clock, so
+# a hard-coded date turns these checks into time bombs that fail as the calendar
+# moves on (they did, a month after they were written).
+from datetime import date as _date, timedelta as _td
+PANEL_ASOF = (_date.today() - _td(days=6)).isoformat()
+PANEL = {"tbill": 8.7692, "tbill182": 8.94, "tbill364": 9.0323, "_asof": PANEL_ASOF}
 OLDSER = {"tbill": 8.8, "tbill182": 8.97, "tbill364": 9.04, "_asof": "2026-07-16"}
 
 f = _fresh(PANEL, OLDSER, cbk_tbill=8.769)
 ok("the 91-day is dated even though the homepage also has it",
-   f.get("tbill", {}).get("asOf") == "2026-08-27", str(f.get("tbill")))
+   f.get("tbill", {}).get("asOf") == PANEL_ASOF, str(f.get("tbill")))
 ok("and by the auction panel, not by Serrari's older one",
-   f.get("tbill182", {}).get("asOf") == "2026-08-27", str(f.get("tbill182")))
+   f.get("tbill182", {}).get("asOf") == PANEL_ASOF, str(f.get("tbill182")))
 ok("so all three are monitored for staleness",
    all(f.get(k, {}).get("ageDays") is not None
        for k in ("tbill", "tbill182", "tbill364")), str(sorted(f)))
@@ -281,18 +286,34 @@ ok("and an undated figure is treated as stale, not as fresh",
    all(f.get(k, {}).get("stale") for k in ("tbill182", "tbill364")),
    str({k: f.get(k) for k in ("tbill182", "tbill364")}))
 
+print("\n── A REPEATED PRINT IS ONE OBSERVATION, NOT MANY")
+# Daily snapshots of a monthly series used to count every repeat, so 39 copies
+# of two lending-rate prints produced a "derived" range 0.01 points wide.
+_spine = {}
+_same = [{"values": {"lending": 14.39 if i < 30 else 14.40, "cbr": 8.75}} for i in range(39)]
+_b = {x["name"]: x for x in kp.build_breaks({"lending": 14.39, "cbr": 8.75}, _spine, _same)}
+_m = _b.get("Bank margin over policy", {})
+ok("39 snapshots of two prints fall back to the published range", _m.get("basis") == "judgement", str(_m))
+ok("and count as two distinct readings", _m.get("n") == 2, str(_m))
+_vary = [{"values": {"lending": 14.0 + i * 0.05, "cbr": 8.75}} for i in range(30)]
+_b = {x["name"]: x for x in kp.build_breaks({"lending": 14.39, "cbr": 8.75}, _spine, _vary)}
+_m = _b.get("Bank margin over policy", {})
+ok("30 genuinely different readings still derive a range", _m.get("basis") == "derived" and _m.get("n") == 30, str(_m))
+ok("and that range is not collapsed", _m["normalHi"] - _m["normalLo"] > 1.0, str(_m))
+
 print("\n── NSE, FRED AND CBK'S FX PANEL NOW CARRY A REAL DATE TOO")
 # Before this, freshness() only ever dated the CBK panel, the bill auctions
 # and Trading Economics - NSE, FRED and CBK's FX rates had no entry at all,
 # so the app fell back to whatever date the seed happened to be authored
 # with, forever. A live value with a stale-looking label is the same lie as
 # a stale value that looks live.
-nse_by = {"nse": {"nasi": 238.61, "nse20": 4165.11, "_asof": "18-Sep-2026"}}
+NSE_DAY = _date.today() - _td(days=1)
+nse_by = {"nse": {"nasi": 238.61, "nse20": 4165.11, "_asof": NSE_DAY.strftime("%d-%b-%Y")}}
 f = kp.freshness(nse_by, {})
-ok("NSE's own statistics date is captured", f.get("nasi", {}).get("asOf") == "2026-09-18",
+ok("NSE's own statistics date is captured", f.get("nasi", {}).get("asOf") == NSE_DAY.isoformat(),
    str(f.get("nasi")))
 ok("every NSE figure that came back gets dated, not just one",
-   f.get("nse20", {}).get("asOf") == "2026-09-18", str(f.get("nse20")))
+   f.get("nse20", {}).get("asOf") == NSE_DAY.isoformat(), str(f.get("nse20")))
 ok("a fresh NSE pull is not stale", f["nasi"]["stale"] is False, str(f["nasi"]))
 
 fred_by = {"fred": {"brent": 74.2, "_brent_asof": "2026-09-17"}}
