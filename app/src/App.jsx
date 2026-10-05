@@ -1431,6 +1431,7 @@ export default function KenyaPulse() {
     setNoteState({ state: "busy", msg: "Scheduling…" });
     const r = await pushSubscribe({ time: cfg.notifyTime, days: cfg.notifyDays });
     if (r.ok) {
+      window.tally?.click("notify"); /* a reader who asks for the daily reminder: the relationship action Tally counts */
       set("notifyOn", true);
       setNoteState({ state: "ok", msg: "Scheduled. It arrives whether the app is open or not." });
     } else {
