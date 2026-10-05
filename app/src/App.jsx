@@ -2412,6 +2412,9 @@ export default function KenyaPulse() {
             onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
             Made with <span style={{ color: c.bad }}>❤</span> by Brian Gachichio
           </a>
+          <div style={{ marginTop: 10, fontSize: "0.75rem", color: c.dim }}>
+            <span data-tally-badge="" />
+          </div>
         </div>
       </div>
 
