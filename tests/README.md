@@ -6,7 +6,7 @@ non-zero exit code means a failure.
 ```bash
 npm install
 
-# the app, mounted under Node — no browser
+# the app, mounted under Node: no browser
 for f in verify persist storage2 mobile trends share v4 ui e2e notify \
          interact coherence; do node $f.js; done
 

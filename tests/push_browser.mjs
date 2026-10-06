@@ -1,7 +1,7 @@
 /* Push, in a real browser.
  *
  * Chromium is the engine behind Chrome on Android, so what passes here is what
- * an Android phone runs. Safari cannot be driven from this machine — the iOS
+ * an Android phone runs. Safari cannot be driven from this machine: the iOS
  * checks are the ones listed in DEPLOY.md, done by hand on a device.
  *
  * Serves the production build, registers the worker, delivers a push through

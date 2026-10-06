@@ -1,4 +1,4 @@
-# Design compliance — design.md v1.1
+# Design compliance: design.md v1.1
 
 Audited and brought into line on 29 August 2026. Every claim below is checked
 by a test in `tests/`, not by eye: `node ui.js` guards the tokens, type and
@@ -11,20 +11,20 @@ computed styles back in light, dark and at `xlarge`.
 
 **Substrate**
 
-- [ ] shadcn/ui + Tailwind only — **exception, see below**
+- [ ] shadcn/ui + Tailwind only: **exception, see below**
 - [x] Zero hardcoded hex values in component files
 - [x] Zero raw Tailwind palette classes (none exist; there is no Tailwind)
 
 **Surface**
 
 - [x] Every colour is an `--md-*` role token, taken verbatim from §4.2 / §4.3
-- [ ] Green appears three times or fewer — **exception, see below**
+- [ ] Green appears three times or fewer: **exception, see below**
 - [x] Elevation from the six-level set; dark drops levels 1–2 to flat
 - [x] Inter for UI and body, self-hosted. Courier Prime for `display-*` /
       `headline-*` only, self-hosted. No third family
 - [x] Weights 400/500/600 on Inter, 400 on mono. Tracking `0em` on every mono token
 - [x] No `px` font sizes anywhere
-- [ ] Ripple + state layer on every button — **not done; see remaining work**
+- [ ] Ripple + state layer on every button: **not done; see remaining work**
 
 **Structure**
 
@@ -38,7 +38,7 @@ computed styles back in light, dark and at `xlarge`.
 
 **Charts**
 
-- [x] Horizontal rule only — the axis line, tick marks and border are gone
+- [x] Horizontal rule only: the axis line, tick marks and border are gone
 - [x] Title, unit, direct label on the hovered point, one-sentence summary
 - [x] One series per chart, in `--md-primary`
 
@@ -47,7 +47,7 @@ computed styles back in light, dark and at `xlarge`.
 - [x] Auto/Light/Dark, default Auto, persisted to `ui.theme`
 - [x] Font size, four steps, persisted to `ui.fontScale`
 - [x] No-FOUC script in `<head>`, reading the same two keys the app writes
-- [x] Tested at `xlarge` and in dark mode — in a real browser, every build
+- [x] Tested at `xlarge` and in dark mode: in a real browser, every build
 
 **Accessibility**
 
@@ -59,7 +59,7 @@ computed styles back in light, dark and at `xlarge`.
 
 ---
 
-## §18 Exceptions — named, with reasons
+## §18 Exceptions: named, with reasons
 
 **1. Substrate is inline styles, not shadcn/ui + Tailwind.**
 
@@ -69,9 +69,9 @@ re-authoring 721 assertions against new markup, on an app that is live and
 carries a daily notification people rely on. The gain is conformance; the cost
 is a rewrite and a real chance of regression.
 
-What was done instead: everything the substrate rule exists to deliver —
-tokens, no stray hex, a real type scale in `rem`, shape and spacing tokens,
-one easing — is now in place, declared in `index.css` and consumed through
+What was done instead: everything the substrate rule exists to deliver
+(tokens, no stray hex, a real type scale in `rem`, shape and spacing tokens,
+one easing) is now in place, declared in `index.css` and consumed through
 `var()`. A future move to Tailwind reads those same custom properties, so this
 is a step toward the rule rather than away from it.
 
@@ -94,8 +94,8 @@ single glance is the product. Obeying the rule literally would mean removing
 the app's primary signal.
 
 Colour never carries meaning alone (§13): every green or red is paired with a
-sign, a figure, or a label. The rule is kept everywhere it was written for —
-buttons, the active tab, the toggle — where green does mean "act here".
+sign, a figure, or a label. The rule is kept everywhere it was written for
+(buttons, the active tab, the toggle) where green does mean "act here".
 
 ---
 
@@ -126,5 +126,5 @@ carrying em dashes in interface copy.
 Added: `index.css` with the full token set for both modes, self-hosted Inter
 and Courier Prime, a `rem` type scale driven by one `--font-scale` variable,
 the pre-paint theme script, and `ui.theme` / `ui.fontScale` as the canonical
-keys — which also fixed a real bug where the app's own store could drift from
+keys, which also fixed a real bug where the app's own store could drift from
 the keys the pre-paint script reads, showing the wrong theme for a frame.

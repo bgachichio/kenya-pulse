@@ -51,7 +51,7 @@ manual ──▶│    chain · breaks    │
           └──────────────────────┘
                   │
                   ▼
-     Kenya Pulse PWA — React + Vite, hosted on Vercel,
+     Kenya Pulse PWA: React + Vite, hosted on Vercel,
      installable on Android, iOS and desktop
 ```
 
@@ -64,12 +64,12 @@ and rollback.
 
 ---
 
-## The collector — `kenya_pulse.py`
+## The collector: `kenya_pulse.py`
 
 - Pulls its sources in one run (~40 s) and writes `public/data.json`.
 - `--health` checks every source is reachable; `--dry` prints the full ladder,
   chain and relationships without writing anything.
-- `manual.json` (copy `manual.example.json`) holds up to three typed figures —
+- `manual.json` (copy `manual.example.json`) holds up to three typed figures:
   NPLs, debt/GDP, current account. All optional; NPLs falls back to an annual
   World Bank source when it goes stale.
 - Where two sources disagree, **nothing is averaged**: one figure is kept, the
@@ -82,30 +82,30 @@ and rollback.
 **Two sources for every Treasury bill.** CBK runs the auction, so
 `src_cbk_bills` reads the *Treasury Bills on Offer* panel on
 [its bills page](https://www.centralbank.go.ke/bills-bonds/treasury-bills/)
-first — a text panel, not one of the page's eight tables, none of which holds
-the current rates; Serrari is the second opinion; a typed figure is the last resort. Each
+first (a text panel, not one of the page's eight tables, none of which holds
+the current rates); Serrari is the second opinion; a typed figure is the last resort. Each
 rate carries the date of the auction it came from, so `--sources` can say a
 figure is stale *at the publisher* rather than merely present. That distinction
 exists because Serrari once served a 16 July auction into September without
 anything noticing.
 
-## The app — `app/`
+## The app: `app/`
 
 A single-file React PWA (`app/src/App.jsx`).
 
-- **Pulse** — every indicator in grouped lists, each expandable into
+- **Pulse**: every indicator in grouped lists, each expandable into
   plain-language *what it is / why it matters*, with sparklines and pinned
   favourites.
-- **Edge** — an executive briefing (narrative call plus a five-line snapshot,
+- **Edge**: an executive briefing (narrative call plus a five-line snapshot,
   one tap to copy), then the ladder, what's building, the transmission chain,
   and the breaks.
-- **Trends** — 24 years of World Bank annual data, ten series, decade averages.
-- **Outlook** — IMF projections to 2031, actuals separated from forecast.
-- **Data** — sync controls, sources, disagreements, every reading in a table.
-- **Share** — indicators, breaks and trends deep-link (`#pulse/cbr`,
+- **Trends**: 24 years of World Bank annual data, ten series, decade averages.
+- **Outlook**: IMF projections to 2031, actuals separated from forecast.
+- **Data**: sync controls, sources, disagreements, every reading in a table.
+- **Share**: indicators, breaks and trends deep-link (`#pulse/cbr`,
   `#edge/…`, `#trends/…`) through the device's native share sheet, with a
   clipboard fallback on desktop.
-- **Daily notification** — optional, and off unless asked for. Pick a time of
+- **Daily notification**: optional, and off unless asked for. Pick a time of
   day and the days of the week in Settings; one notification arrives at that
   time carrying the headline figures, **whether the app is open, backgrounded
   or closed**, because it is sent by the VM rather than scheduled in the page.
@@ -113,9 +113,9 @@ A single-file React PWA (`app/src/App.jsx`).
   Chrome, Edge and Firefox; on iPhone once the app is on the home screen, which
   the app explains rather than offering a toggle that cannot work.
   See [the push service](#the-push-service--push_serverpy).
-- **Device clock** — the header date and time come from the viewing device,
+- **Device clock**: the header date and time come from the viewing device,
   with the feed's as-of date shown alongside as "readings to …".
-- **Yours to tune** — theme (light/dark/system), text size, pinned indicators,
+- **Yours to tune**: theme (light/dark/system), text size, pinned indicators,
   and the withholding-tax assumptions the ladder is computed with. All of it
   persists in `localStorage` on the device, and no account exists.
 - The feed URL is a hard-coded constant, not a setting. Users personalise the
@@ -131,14 +131,14 @@ and `tests/visual-check.mjs`.
 
 ---
 
-## The push service — `push_server.py`
+## The push service: `push_server.py`
 
 The one piece with a server behind it, and only because there is no other way:
 a timer inside a web page stops when the page does, so a schedule that lives in
 the browser can never reach a closed app. Web push can, and web push needs a
 sender.
 
-It runs on the same VM as the collector, in two modes — `--serve` for the small
+It runs on the same VM as the collector, in two modes: `--serve` for the small
 API the app subscribes to (localhost only, Caddy publishes it at
 `/pulse/push/`), and `--send-due` for the cron pass that does the sending.
 Subscriptions live in a JSON file at mode 600; still no database.
@@ -161,7 +161,7 @@ Subscriptions live in a JSON file at mode 600; still no database.
 **What it costs.** One pass is ~300 ms and 49 MB, freed on exit; 288 passes a
 day is 0.10% of one core. The store is a few hundred bytes per device, and the
 log is written only when something is sent or fails. Nothing is held between
-runs, and no database is involved — here or anywhere else in the project.
+runs, and no database is involved, here or anywhere else in the project.
 
 Setup, systemd unit, Caddy block and cron line: [`DEPLOY.md`](DEPLOY.md) Part C.
 
@@ -180,7 +180,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python kenya_pulse.py             # write data.json live
 ```
 
-**App** (build on a real machine — never on a 1 GB VM, it OOMs on install):
+**App** (build on a real machine, never on a 1 GB VM, it OOMs on install):
 
 ```bash
 cd app && npm ci
@@ -209,16 +209,16 @@ python3 collector_test.py                 # the collector, no network needed
 
 ## Rolling back
 
-- **Feed:** `cp public/data.json.last public/data.json` — under a second,
+- **Feed:** `cp public/data.json.last public/data.json`: under a second,
   Caddy serves whatever file is there.
-- **App:** `npx vercel rollback` — instant and atomic.
-- **Notifications:** `sudo systemctl stop kenya-pulse-push` — stops the
+- **App:** `npx vercel rollback`: instant and atomic.
+- **Notifications:** `sudo systemctl stop kenya-pulse-push`: stops the
   reminders and touches nothing else.
 
 ## Privacy
 
-No account, no analytics, no cookies. Settings — theme, text size, pins, tax
-assumptions — stay in `localStorage` on the device and are never sent anywhere.
+No account, no analytics, no cookies. Settings (theme, text size, pins, tax
+assumptions) stay in `localStorage` on the device and are never sent anywhere.
 
 With notifications **off**, which is the default, the only network calls are
 the static data feed and the app's own assets.
@@ -226,7 +226,7 @@ the static data feed and the app's own assets.
 Turning notifications **on** necessarily sends something: the push endpoint the
 browser mints for that device, the two keys that encrypt to it, the chosen time
 and days, and the timezone name. That is what a reminder to a closed app costs,
-and it is the whole of it — no account, no identifier, nothing naming the
+and it is the whole of it: no account, no identifier, nothing naming the
 person. Turning the toggle off deletes the record from the server and releases
 the subscription in the browser.
 

@@ -1,7 +1,7 @@
 /* The service worker's own logic, run as shipped.
  *
- * This loads app/dist/sw.js — the bundled artefact that goes to production,
- * not the source — inside a mocked worker global, and drives the events a
+ * This loads app/dist/sw.js (the bundled artefact that goes to production,
+ * not the source) inside a mocked worker global, and drives the events a
  * phone would raise. It covers the one path a browser cannot be told to
  * perform from a script: tapping the notification.
  *

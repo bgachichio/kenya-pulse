@@ -1,5 +1,5 @@
 /* ===========================================================================
-   Kenya Pulse — service worker
+   Kenya Pulse: service worker
 
    Three jobs:
      PRECACHE   the built app, so it opens offline
@@ -8,7 +8,7 @@
 
    The push handlers are why this file is hand-written rather than generated.
    A notification that cannot be tapped open is a dead end, and a notification
-   that only fires while the page is running is not a notification at all —
+   that only fires while the page is running is not a notification at all;
    both need code that lives here, outside the page.
 =========================================================================== */
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
@@ -36,7 +36,7 @@ registerRoute(
    PUSH
    The server sends JSON. Anything unreadable still surfaces something, because
    a push that resolves to no notification costs the site its permission on
-   some browsers — userVisibleOnly is a promise the browser holds us to.
+   some browsers: userVisibleOnly is a promise the browser holds us to.
 --------------------------------------------------------------------------- */
 const FALLBACK = { title: "Kenya Pulse", body: "Today's readings are ready.", url: "/#edge" };
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kenya Pulse — push service.
+"""Kenya Pulse: push service.
 
 Two jobs in one file, because they share a store and nothing else:
 
@@ -18,7 +18,7 @@ that encrypt to it, a time, a set of days, and a timezone name. No account, no
 identifier, nothing that says who the device belongs to.
 
 The VAPID private key is read from the environment. It is never written here,
-never logged, and never committed — see --genkeys.
+never logged, and never committed: see --genkeys.
 """
 import argparse
 import fcntl
@@ -147,7 +147,7 @@ def briefing(data: dict) -> tuple[str, str]:
     if ladder:
         best = max(ladder, key=lambda r: r["real"])
         sign = "+" if best["real"] > 0 else ""
-        line2 = f"Best real return: {best.get('label', '—')} {sign}{best['real']:.2f}%"
+        line2 = f"Best real return: {best.get('label', '-')} {sign}{best['real']:.2f}%"
 
     return "Kenya Pulse", "\n".join(x for x in (line1, line2) if x)
 
@@ -163,7 +163,7 @@ def load_data() -> dict:
 # sending
 # --------------------------------------------------------------------------
 def due_reason(sub: dict, now_utc: datetime) -> str | None:
-    """None means send it. Otherwise a sentence saying why not — so that
+    """None means send it. Otherwise a sentence saying why not, so that
     "it did not notify me" is a question with an answer rather than a hunt."""
     if not sub.get("days"):
         return "no days are selected"
@@ -180,10 +180,10 @@ def due_reason(sub: dict, now_utc: datetime) -> str | None:
     except ValueError:
         return f"unreadable time {sub.get('time')!r}"
     if local < target:
-        return f"not yet — {target:%H:%M} is {int((target - local).total_seconds() // 60)} min away"
+        return f"not yet: {target:%H:%M} is {int((target - local).total_seconds() // 60)} min away"
     late = local - target
     if late > GRACE:
-        return f"too late — {target:%H:%M} passed {int(late.total_seconds() // 60)} min ago, past the {int(GRACE.total_seconds() // 3600)}h window"
+        return f"too late: {target:%H:%M} passed {int(late.total_seconds() // 60)} min ago, past the {int(GRACE.total_seconds() // 3600)}h window"
     today = local.date().isoformat()
     # Two counters, not one. lastSent stops the five-minute cron sending the
     # same briefing twice; sentCount stops a reader who keeps moving the time
@@ -214,7 +214,7 @@ def send_due(now_utc: datetime | None = None, sender=None, force: bool = False) 
     private = os.environ.get("KP_VAPID_PRIVATE", "")
     subject = os.environ.get("KP_VAPID_SUBJECT", "mailto:hello@gachichio.org")
     if not private and sender is None:
-        raise SystemExit("KP_VAPID_PRIVATE is not set — see --genkeys")
+        raise SystemExit("KP_VAPID_PRIVATE is not set: see --genkeys")
 
     title, body = briefing(load_data())
     payload = json.dumps({"title": title, "body": body, "url": "/#edge"})
@@ -385,7 +385,7 @@ def genkeys(path: Path) -> int:
     from py_vapid import Vapid
 
     if path.exists():
-        print(f"{path} exists — refusing to overwrite a live key", file=sys.stderr)
+        print(f"{path} exists, refusing to overwrite a live key", file=sys.stderr)
         return 1
     v = Vapid()
     v.generate_keys()
@@ -431,7 +431,7 @@ def main() -> int:
         print(f"feed         {DATA} ({'present' if DATA.exists() else 'MISSING'})")
         print(f"store        {STORE} ({len(subs)} subscription(s))")
         if not subs:
-            print("\nNothing is subscribed — no device has switched the toggle on.")
+            print("\nNothing is subscribed: no device has switched the toggle on.")
         for endpoint, sub in subs.items():
             try:
                 local = now.astimezone(ZoneInfo(sub.get("tz") or "Africa/Nairobi"))
@@ -471,7 +471,7 @@ def main() -> int:
         tally = send_due()
         # Cron calls this 288 times a day. A line each time is a file that
         # grows for ever to say "nothing happened". Speak only when something
-        # did — --why reports the current state on demand.
+        # did: --why reports the current state on demand.
         if tally["sent"] or tally["failed"] or tally["dropped"]:
             stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
             print(json.dumps({"at": stamp, **tally}))

@@ -63,7 +63,7 @@ ok('GDP decade 1 rendered', t.includes(gd1.toFixed(2)), gd1.toFixed(2));
 ok('GDP decade 2 rendered', t.includes(gd2.toFixed(2)), gd2.toFixed(2));
 ok('GDP decade 3 rendered', t.includes(gd3.toFixed(2)), gd3.toFixed(2));
 
-// current account has a null at 2025 — the old code shifted every decade
+// current account has a null at 2025: the old code shifted every decade
 const sel=B(r).filter(b=>txt(b).trim()==='Current account');
 ok('current account selector exists', sel.length>0);
 TR.act(()=>sel[0].props.onClick());

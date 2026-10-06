@@ -62,7 +62,7 @@ ok('current commentary still below it', t.includes('Sitting almost exactly on th
 ok('plain definition present', t.includes('banks actually charge each other'), '');
 let covered=0, missing=[];
 const SRC=fs.readFileSync(require('path').resolve(__dirname, '../app/src/App.jsx'),'utf8');
-// core inflation and private credit growth were removed — no automatic source exists
+// core inflation and private credit growth were removed: no automatic source exists
 for(const id of ['cbr','kesonia','tbill','tbill182','tbill364','discount','inflation','lending',
   'deposit','savings','npl','kes_usd','kes_eur','kes_gbp','cab','gdp','pmi',
   'nasi','nse20','nse25','bank_idx','mktcap','debt','debt_gdp','fed_funds','us10y',

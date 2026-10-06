@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KENYA PULSE — collector v3
+KENYA PULSE · collector v3
 
 Pulls Kenyan and global macro data, reconciles sources that disagree, computes
 the three signal layers, and writes one JSON the app renders.
@@ -151,7 +151,12 @@ PRECEDENCE = {
     # panel leads, the homepage backs it up, Serrari is third.
     "tbill": ["cbkbills", "cbk", "sbills"],
     "tbill182": ["cbkbills", "sbills", "manual"],
-    "tbill364": ["cbkbills", "sbills", "manual"], "bond10": ["sbonds", "manual"],
+    "tbill364": ["cbkbills", "sbills", "manual"],
+    # Serrari bands across 77 issues, which is the better reading when it
+    # works; Trading Economics' own quoted benchmark is the live second
+    # opinion when that band comes back empty, so a scrape failure drops to
+    # another live source before it ever drops to a typed figure.
+    "bond10": ["sbonds", "te", "manual"],
     "infra": ["sbonds", "manual"],
     "lending": ["cbk", "manual"], "savings": ["cbk", "manual"], "deposit": ["cbk", "manual"],
     "mmf_top": ["serrari", "manual"], "mmf_avg": ["serrari", "manual"],
@@ -365,7 +370,7 @@ def src_serrari():
     Money market fund rates, from Serrari's daily comparison table.
 
     This closes the last big hole in the ladder. Fund rates were typed by hand
-    and went stale fastest of anything — the figure this replaced was 142 days
+    and went stale fastest of anything: the figure this replaced was 142 days
     old and overstated the best fund by a full percentage point.
 
     Their published net yields match 15% withholding tax on every fund in the
@@ -679,7 +684,7 @@ def src_cbk_bills():
 
 
 def src_serrari_bills():
-    """Treasury bill auction results — the 182 and 364-day tenors, which the
+    """Treasury bill auction results: the 182 and 364-day tenors, which the
     CBK front page does not carry. The 91-day comes from CBK, which is fresher."""
     out = {}
     try:
@@ -750,6 +755,47 @@ def src_te():
     return out, dates
 
 
+def src_te_bond10():
+    """The 10-year government bond, Trading Economics' own quoted benchmark.
+
+    A second live rung for bond10, between Serrari's band-averaged scrape and
+    the typed figure in manual.json: this page carries one issue dated to the
+    day, not a band across many, so it is parsed separately from the rest of
+    `TE` rather than forced through src_te()'s month/quarter-end dating, which
+    would misdate it exactly the way a late-pasted report once misdated a
+    month-end close elsewhere in this project.
+    """
+    out, dates = {}, {}
+    try:
+        html = get("https://tradingeconomics.com/kenya/government-bond-yield").text
+        desc = ""
+        for m in re.finditer(r'<meta[^>]+name=["\']description["\'][^>]*'
+                             r'content=["\']([^"\']+)', html):
+            desc = m.group(1)
+            break
+        if not desc:
+            raise RuntimeError("no description on the page")
+        mm = re.search(r"Kenya 10Y Bond Yield (?:eased|rose|increased|decreased|"
+                       r"fell|climbed|dropped|held steady|was steady|"
+                       r"remained steady|closed)\s+(?:to|at)?\s*([\d.]+)%\s+on\s+"
+                       r"(\w+)\s+(\d{1,2}),\s*(\d{4})",
+                       desc)
+        if not mm:
+            raise RuntimeError("figure not found in the description")
+        month = MONTH_NUM.get(mm.group(2).lower())
+        if not month:
+            raise RuntimeError(f"unrecognised month {mm.group(2)!r}")
+        value, problem = parse_number(mm.group(1), "bond10")
+        if problem:
+            raise RuntimeError(problem)
+        dates["bond10"] = f"{mm.group(4)}-{month:02d}-{int(mm.group(3)):02d}"
+        out["bond10"] = value
+    except Exception as e:
+        log(f"    te bond10 FAILED: {e}")
+    log(f"    trading economics bond10: {out.get('bond10')}")
+    return out, dates
+
+
 def src_fx():
     """Fallback currency crosses for the pairs CBK does not post."""
     out = {}
@@ -788,7 +834,7 @@ MANUAL_CADENCE = {
 }
 
 
-# A published Google Sheet, read as CSV. No key, no OAuth, no service account —
+# A published Google Sheet, read as CSV. No key, no OAuth, no service account:
 # publishing to the web makes it readable by anyone with the link, which is fine
 # for figures the government already published.
 #
@@ -798,7 +844,7 @@ SHEET_TAB = os.environ.get("KP_SHEET_TAB", "").strip()   # optional gid
 
 # What each figure could plausibly be. A typed number outside its range is far
 # more likely a slip than a real reading, and a wrong rate here corrupts the
-# ladder silently — which is worse than a missing one.
+# ladder silently, which is worse than a missing one.
 PLAUSIBLE = {
     "npl": (0, 60), "pmi": (20, 80),
     "lending": (0, 40),
@@ -822,7 +868,7 @@ def parse_number(raw, key):
         if re.fullmatch(r"-?\d{1,3}(,\d{3})+(\.\d+)?", t):
             t = t.replace(",", "")                      # 4,047.48 → 4047.48
         else:
-            return None, f"{key}: '{raw}' — ambiguous comma, use a full stop"
+            return None, f"{key}: '{raw}' is ambiguous (use a full stop, not a comma)"
     try:
         v = float(t)
     except ValueError:
@@ -894,9 +940,12 @@ def src_sheet():
 
 def src_manual():
     """
-    What only exists inside a PDF or behind a paywall: the Stanbic PMI, the
-    longer bills, the 10-year bond, NPLs, the debt stock, quarterly GDP and
-    your own money market rate.
+    The last resort once every live source for a key has failed. NPLs have no
+    live source at all, so they live here permanently. Everything else typed
+    in (the longer bills, the 10-year bond, the Stanbic PMI, the debt stock,
+    quarterly GDP, your own money market rate) carries at least one live
+    source ahead of it; a healthy run should rarely, if ever, actually read
+    one of these figures.
 
     Each entry may carry the date it was published:
 
@@ -934,8 +983,8 @@ def manual_freshness(dates):
     """
     Age each figure against its own publication cadence.
 
-    Anything outside MANUAL_CADENCE has a live source — inflation from CBK,
-    money market rates from Serrari — so it carries its date but can never be
+    Anything outside MANUAL_CADENCE has a live source (inflation from CBK,
+    money market rates from Serrari), so it carries its date but can never be
     stale. It refreshes itself.
     """
     today = datetime.now(timezone.utc).date()
@@ -968,8 +1017,8 @@ def manual_freshness(dates):
 # ===========================================================================
 # RECONCILIATION
 # ===========================================================================
-# When a typed figure has gone past its own release cycle, an automatic source
-# — even an annual one — is more honest than a number nobody has touched in
+# When a typed figure has gone past its own release cycle, an automatic source,
+# even an annual one, is more honest than a number nobody has touched in
 # months. The substitution is only ever made in that direction, and the app is
 # told, so a lagging annual figure is never dressed up as this month's reading.
 def apply_fallbacks(values, prov, fresh, spine):
@@ -1053,7 +1102,7 @@ def carry_forward(values, prov, state):
 
 
 # ===========================================================================
-# LAYER 1 — THE LADDER
+# LAYER 1 · THE LADDER
 # ===========================================================================
 # Kenyan withholding tax on interest, resident individuals. These are defaults;
 # the app lets you override all three, so the ladder you see is computed there. The tax firms
@@ -1113,7 +1162,7 @@ def build_ladder(v, fresh=None):
 
 
 # ===========================================================================
-# LAYER 2 — THE CHAIN
+# LAYER 2 · THE CHAIN
 # ===========================================================================
 # Kenya's monetary transmission, with the lags the CBK's own research puts on
 # each link. The point is not precision. It is that a move already visible at
@@ -1134,7 +1183,7 @@ def build_chain(v, hist):
     of the story that has not been priced.
 
     On a fresh install there is no log to compare against. That is reported as
-    'waiting', not as 'has not moved' — an absence of evidence dressed up as a
+    'waiting', not as 'has not moved': an absence of evidence dressed up as a
     signal is the single easiest way to make a dashboard lie.
     """
     out = []
@@ -1155,7 +1204,7 @@ def build_chain(v, hist):
 
 
 # ===========================================================================
-# LAYER 3 — LEADING INDICATORS
+# LAYER 3 · LEADING INDICATORS
 # ===========================================================================
 # Each pair is one signal that typically moves before its target, with the
 # lag published research gives it - the same honesty as CHAIN's own lags:
@@ -1216,7 +1265,7 @@ def build_leading(sig):
 
 
 # ===========================================================================
-# LAYER 4 — THE BREAKS
+# LAYER 4 · THE BREAKS
 # ===========================================================================
 # Each relationship is defined once: how to compute it, a fallback range taken
 # from published Kenyan history, and what a reading outside that range means.
@@ -1229,7 +1278,7 @@ BREAK_SPECS = [
             if v.get("lending") is not None and v.get("cbr") is not None else None,
         "why": "Average lending rate less the Central Bank Rate.",
         "hi": "Banks are holding spreads wide while policy eases. Transmission is "
-              "incomplete, so more of the cut has yet to reach borrowers — and more "
+              "incomplete, so more of the cut has yet to reach borrowers, and more "
               "of the fall in lending rates is still to come.",
         "lo": "Spreads are unusually thin. Bank margins are being squeezed.",
     },
@@ -1302,7 +1351,7 @@ def build_breaks(v, spine, hist):
     regime change, and both are worth knowing before everyone else.
 
     The range is computed from this system's own logged history once there are
-    enough observations — the 10th to 90th percentile of what has actually been
+    enough observations: the 10th to 90th percentile of what has actually been
     seen. Until then it falls back to a range read off published Kenyan history,
     and says so. An app whose headline claim is "this is mispriced" owes you the
     provenance of the yardstick.
@@ -1387,7 +1436,7 @@ def build_call(ladder, chain, breaks):
     if still:
         L.append("Holding still in the chain: " +
                  ", ".join(c["label"].lower() for c in still) +
-                 " — that is the part not yet priced.")
+                 "; that is the part not yet priced.")
     elif waiting:
         L.append(f"The chain needs {3 - max((c['readings'] for c in waiting), default=0)} "
                  f"more readings before it can show movement.")
@@ -1511,9 +1560,9 @@ def briefing(sig, ladder, breaks, chain, leading, asof):
 
     def f(i):
         s = g.get(i)
-        return f"{s['value']:g}{s['unit']}{_trend(s)}" if s else "—"
+        return f"{s['value']:g}{s['unit']}{_trend(s)}" if s else "-"
 
-    L = [f"<b>KENYA PULSE — {asof}</b>", "",
+    L = [f"<b>KENYA PULSE · {asof}</b>", "",
          f"<b>Policy</b>    CBR {f('cbr')}, KESONIA {f('kesonia')}, 91-day {f('tbill')}",
          f"<b>Prices</b>    inflation {f('inflation')}",
          f"<b>Banking</b>   lending {f('lending')}, deposit {f('deposit')}, NPLs {f('npl')}",
@@ -1541,7 +1590,7 @@ def briefing(sig, ladder, breaks, chain, leading, asof):
         lead = off[0]
         why = lead["reading"].split(". ")[0].rstrip(".") + "."
         L.append(f"<b>Off range</b> {lead['name']} {lead['value']}{lead['unit']} "
-                  f"(usual {lead['normalLo']}–{lead['normalHi']}{lead['unit']}) — {why}")
+                  f"(usual {lead['normalLo']}–{lead['normalHi']}{lead['unit']}): {why}")
         extra = off[1:3]
         if extra:
             L.append("Also: " + ", ".join(f"{b['name']} {b['value']}{b['unit']}"
@@ -1555,7 +1604,7 @@ def briefing(sig, ladder, breaks, chain, leading, asof):
     if still:
         lead = still[0]
         L.append(f"<b>Outlook</b> {lead['label'].lower()} hasn't followed policy "
-                  f"yet — {lead['why'].lower()}; ~{lead['lagMonths']}mo typical lag.")
+                  f"yet: {lead['why'].lower()}; ~{lead['lagMonths']}mo typical lag.")
     else:
         waiting = [c for c in chain if c["status"] == "waiting"]
         if waiting:
@@ -1627,7 +1676,7 @@ def remind():
     A reminder worth reading names what is actually overdue, so it can be acted
     on in one sitting. A generic monthly nudge gets ignored by the third month.
 
-    Money market rates and inflation are no longer on this list — both are
+    Money market rates and inflation are no longer on this list: both are
     fetched now.
     """
     _, man_dates = src_manual()
@@ -1639,9 +1688,9 @@ def remind():
     for key, (label, who, when) in RELEASES.items():
         f = fresh.get(key, {})
         if f.get("asOf") is None:
-            undated.append(f"{label} — no date recorded")
+            undated.append(f"{label}: no date recorded")
         elif f.get("stale"):
-            overdue.append(f"{label} — {f['ageDays']} days old ({who}, {when})")
+            overdue.append(f"{label}: {f['ageDays']} days old ({who}, {when})")
         else:
             fine += 1
 
@@ -1649,10 +1698,10 @@ def remind():
              if SHEET_ID else "manual.json on the VM")
 
     if not overdue and not undated:
-        msg = (f"Kenya Pulse — everything current.\n{fine} typed figures all within "
+        msg = (f"Kenya Pulse: everything current.\n{fine} typed figures all within "
                f"their release cycle. Nothing to do.")
     else:
-        lines = ["Kenya Pulse — time to update the sheet.", ""]
+        lines = ["Kenya Pulse: time to update the sheet.", ""]
         if overdue:
             lines += ["Overdue:"] + [f"  · {x}" for x in overdue] + [""]
         if undated:
@@ -1712,7 +1761,7 @@ def freshness(by_source, man_dates):
                          "why": f"last auction ({_src})"}
             break
     # Trading Economics reports the period it belongs to, so use that date
-    # rather than today — a July PMI is a July reading whenever it was fetched.
+    # rather than today: a July PMI is a July reading whenever it was fetched.
     for _k, _d in by_source.get("_te_dates", {}).items():
         if isinstance(by_source.get("te", {}).get(_k), (int, float)):
             _age = (datetime.now(timezone.utc).date()
@@ -1973,6 +2022,7 @@ def health_report():
         ("Currency fallback", "https://open.er-api.com/v6/latest/USD", True),
         ("Serrari MMF table", "https://serrarigroup.com/ke/mmf", False),
         ("Trading Economics", "https://tradingeconomics.com/kenya/manufacturing-pmi", False),
+        ("Trading Economics bonds", "https://tradingeconomics.com/kenya/government-bond-yield", False),
         ("Serrari bonds", "https://serrarigroup.com/ke/bonds", False),
         ("CBK T-bills", CBK_BILLS, False),
         ("Serrari bills", "https://serrarigroup.com/ke/tbills", False),
@@ -2069,8 +2119,9 @@ def gather():
     by_source["cbkbills"] = src_cbk_bills()
     by_source["sbills"] = src_serrari_bills()
     te_vals, te_dates = src_te()
-    by_source["te"] = te_vals
-    by_source["_te_dates"] = te_dates
+    bond10_val, bond10_date = src_te_bond10()
+    by_source["te"] = {**te_vals, **bond10_val}
+    by_source["_te_dates"] = {**te_dates, **bond10_date}
     if "kes_usd" not in by_source["cbk"]:
         by_source["fx"] = src_fx()
 
@@ -2181,7 +2232,7 @@ def main():
                   f"real {r['real']:>+6.2f}%")
         print("\nCHAIN")
         for c in chain:
-            mv = "—" if c["move"] is None else f"{c['move']:+.2f}"
+            mv = "-" if c["move"] is None else f"{c['move']:+.2f}"
             print(f"  +{c['lagMonths']:>2}m {c['label']:20} {c['value']:>7.2f}  "
                   f"6-run move {mv:>7}  [{c['status']}]")
         print("\nBREAKS")
@@ -2204,7 +2255,7 @@ def main():
                 age = f"{r['ageDays']}d old" if r["ageDays"] is not None else "undated"
                 print(f"    {r['label']:24} {age}")
         if frozen:
-            print(f"  ⚠ readings unchanged for {frozen} days — check the collector")
+            print(f"  ⚠ readings unchanged for {frozen} days, check the collector")
         for d in disagree:
             print(f"  DISAGREE {d['id']}: {d['kept']}={d['keptValue']} over "
                   f"{d['other']}={d['otherValue']} ({d['gapPct']}%)")

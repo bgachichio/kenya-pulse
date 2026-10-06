@@ -1,4 +1,4 @@
-# generated data — output, not source
+# generated data: output, not source
 /public/
 history.jsonl
 history.jsonl.bak
@@ -9,7 +9,7 @@ run.log
 # your own figures
 manual.json
 
-# push service state — subscriber endpoints are other people's data, and the
+# push service state: subscriber endpoints are other people's data, and the
 # store sits beside the code on the VM
 .venv-push/
 push-subscriptions.json

@@ -94,7 +94,7 @@ if(pins.length){ TR.act(()=>pins[0].props.onClick()); ok('pin toggles without er
 console.log("\n── PERSISTENCE");
 
 TR.act(()=>B().find(b=>b.props['aria-label']==='Close').props.onClick());
-// writes are debounced by 250ms — flush the timer before reading disk
+// writes are debounced by 250ms: flush the timer before reading disk
 await new Promise(res=>setTimeout(res,320));   // let the debounced write land
 const raw=global.window.localStorage.getItem('kp.cfg');
 const saved=raw?JSON.parse(raw):null;

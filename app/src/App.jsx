@@ -28,7 +28,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
    so making it a setting only invited people to break it. */
 const FEED = "https://gachichio.org/pulse/data.json";
 
-/* Deep links. #edge, #trends/inflation, #pulse/cbr — so a finding can be shared,
+/* Deep links. #edge, #trends/inflation, #pulse/cbr: so a finding can be shared,
    not just the app. The hash is rewritten as you move, and read on arrival. */
 const TAB_IDS = ["pulse", "edge", "trends", "outlook", "data"];
 

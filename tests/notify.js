@@ -23,7 +23,7 @@ global.window = {
   get navigator() { return globalThis.navigator; },
 };
 /* `"PushManager" in window` asks whether the property exists, not what it
-   holds — an iPhone in a Safari tab genuinely does not have it, so the mock
+   holds: an iPhone in a Safari tab genuinely does not have it, so the mock
    has to remove it rather than set it undefined. */
 function setPushSupport(on) {
   if (on) window.PushManager = function PushManager() {};
@@ -156,7 +156,7 @@ const toggleNotify = async (r) => {
   ok('the device did not mint a second subscription',
     resubs[0] && resubs[0].body.subscription.endpoint === sub.body.subscription.endpoint,
     `${sub.body.subscription.endpoint} vs ${resubs[0] && resubs[0].body.subscription.endpoint}`);
-  ok('so the server sees one device, rescheduled — not two',
+  ok('so the server sees one device, rescheduled, not two',
     SUBSCRIBED.endpoint === 'https://fcm.googleapis.com/fcm/send/TESTDEVICE');
 
   console.log('\n── CHANGING THE DAYS RE-REGISTERS');

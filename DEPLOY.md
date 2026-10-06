@@ -1,6 +1,6 @@
-# Kenya Pulse — deploy
+# Kenya Pulse: deploy
 
-**S0 first.** Your `building` skill file carries four live credentials — an
+**S0 first.** Your `building` skill file carries four live credentials: an
 OpenRouter key, an Ollama key, and a Backblaze key pair. Your `developer` skill
 §8.1.1 forbids credentials in skill files, and those skills are in a GitHub repo.
 Rotate all four before anything below. Rotation first, diagnosis second.
@@ -16,7 +16,7 @@ the Lenovo. About twenty minutes. Each step ends with **You should see**.
 
 `$V`, `$K`, `$SRC` and the `kp` helper are shell state, not settings. They live
 only in the terminal they were typed into, so a new tab, a reboot, or coming
-back tomorrow loses all of them — and **every command below uses at least one**.
+back tomorrow loses all of them, and **every command below uses at least one**.
 
 Run this once per terminal, before anything else. It writes the file the first
 time and reads it every time after:
@@ -47,14 +47,14 @@ here works on the schedule: `kp --sources`, `kp --health`, `kp --dry`.
 grep -q kenya-pulse-env ~/.bashrc || echo '. ~/.kenya-pulse-env' >> ~/.bashrc
 ```
 
-One line, and every future terminal has it already. Optional — everything below
+One line, and every future terminal has it already. Optional: everything below
 works without it, provided you run the block above first.
 
 ### If you see `hostname contains invalid characters`
 
 That is this, and only this. With `$K` and `$V` empty, `ssh $K $V "long
 command"` puts the command itself where the hostname belongs, and ssh rejects
-it. Nothing ran, nothing was changed, nothing is broken — run the block above
+it. Nothing ran, nothing was changed, nothing is broken: run the block above
 and repeat what you were doing.
 
 ```
@@ -95,7 +95,7 @@ cd "$SRC" && git log --oneline -1 && git status --short
 ```
 
 **You should see** one commit line and nothing else. Anything listed under
-`git status` is a local edit that a `pull` did not overwrite — deal with it
+`git status` is a local edit that a `pull` did not overwrite: deal with it
 before going on.
 
 Then check the working copy really is what the remote holds:
@@ -116,7 +116,7 @@ git -C $SRC fetch origin main -q
 
 **This VM runs the collector as a dedicated service account, `kpulse`.** Not as
 `bgkaranja`, and not as root. `~/kenya-pulse` and everything in it belongs to
-`kpulse`; your login cannot write there, which is correct and worth keeping —
+`kpulse`; your login cannot write there, which is correct and worth keeping:
 the thing that touches the internet on a schedule should not own your home
 directory.
 
@@ -134,7 +134,7 @@ ssh $K $V "sudo install -o kpulse -g kpulse -m 600 /tmp/kenya_pulse.py ~/kenya-p
 ```
 
 **You should see** `deps ok`, then the line count of what you just copied. If
-the count still reads the old one, the `install` did not run — check the
+the count still reads the old one, the `install` did not run: check the
 `sudo` output rather than carrying on.
 
 `kenya_pulse.py` goes in at `600` because that is how it already sits; the
@@ -145,7 +145,7 @@ other two are world-readable and stay that way.
 answer on Debian and sidesteps the externally-managed-environment error
 entirely. The push service has `.venv-push` because it needs pinned versions of
 `pywebpush` and `cryptography` that Debian does not ship. The collector needs
-neither. Do not add one — a second environment nothing runs from is a place for
+neither. Do not add one: a second environment nothing runs from is a place for
 the two to drift apart.
 
 ### Never write into that directory as yourself
@@ -172,7 +172,7 @@ ssh $K $V "cp ~/kenya-pulse/manual.example.json ~/kenya-pulse/manual.json && nan
 ```
 
 Three keys: `npl`, `debt_gdp`, `cab`. Correct the values and dates. All three
-are optional — leave the file empty and NPLs falls back to an annual World
+are optional: leave the file empty and NPLs falls back to an annual World
 Bank source; `debt_gdp` and `cab` fall back to IMF annual figures.
 
 ## A3 · Check every source
@@ -199,16 +199,16 @@ per indicator naming where its figure came from. What to look for:
 
 | In the output | What it means | What to do |
 |---|---|---|
-| `cbk bills   0  (none)  <- returned nothing` | CBK's table moved | fix `src_cbk_bills` — the log line names the headers it did find |
+| `cbk bills   0  (none)  <- returned nothing` | CBK's table moved | fix `src_cbk_bills`: the log line names the headers it did find |
 | `tbill182 ... <- fell back` | the first-choice source failed and a lower one is standing in | fix that source |
-| `tbill182 ... <- SOURCE IS STALE` | the source answered, and its figure is weeks old | **collecting more often will not help** — the publisher has stopped |
+| `tbill182 ... <- SOURCE IS STALE` | the source answered, and its figure is weeks old | **collecting more often will not help**: the publisher has stopped |
 | `tbill182 ... <- fell back, SOURCE IS STALE` | both: the first choice is gone and the stand-in is behind | this is what the 182-day looked like in September |
 | `... <- no date` | typed, but with no date, so its age cannot be judged | date it in the sheet |
 | `tbill182 ... <- MISSING` | no source and no typed figure | type one |
 | every indicator named against its live source | working | nothing |
 
 This is the command to run first when a rate looks frozen. The `AS OF` column
-is the reading's own publication date, not when it was fetched — which is the
+is the reading's own publication date, not when it was fetched: the
 distinction that took a week to spot by hand.
 
 The first line answers the connection question on its own:
@@ -230,12 +230,12 @@ the only thing that would have shown the 182-day bill going quiet.
 kp --tables https://www.centralbank.go.ke/bills-bonds/treasury-bills/
 ```
 
-Prints every table on a page — its headers, its first rows, its size — plus any
+Prints every table on a page (its headers, its first rows, its size) plus any
 spreadsheet it links to. Written after a scraper matched the wrong table on
 that page and reported a 2016 rate as current. Guessing at markup from a
 distance is how that happens.
 
-## A4 · Dry run — read the ladder before writing anything
+## A4 · Dry run: read the ladder before writing anything
 
 ```bash
 kp --dry | tail -40
@@ -257,7 +257,7 @@ curl -s https://gachichio.org/pulse/data.json | head -c 60; echo
 
 ## A6 · Change the schedule
 
-There already is one, in **`kpulse`'s** crontab — not yours, which is why
+There already is one, in **`kpulse`'s** crontab, not yours, which is why
 `crontab -l` as `bgkaranja` shows only the push sender. Look before you write:
 
 ```bash
@@ -276,8 +276,8 @@ What it currently says, and the problem with it:
 `date` says this VM is on **UTC**, so `0 7` is 07:00 UTC, 10:00 in Nairobi.
 
 The change: the full sweep moves from twice a month to weekly, and the fast
-pass from weekly to daily. Everything else about those lines — the environment
-file, `/usr/bin/python3`, `run.log` — stays exactly as it is.
+pass from weekly to daily. Everything else about those lines (the environment
+file, `/usr/bin/python3`, `run.log`) stays exactly as it is.
 
 ```bash
 ssh $K $V "sudo crontab -u kpulse -l | grep -v kenya_pulse.py | {
@@ -291,7 +291,7 @@ ssh $K $V "sudo crontab -u kpulse -l | grep -v kenya_pulse.py | {
 - **Daily, 15:20 UTC** (18:20 Nairobi), `--fast`. Evening in Nairobi, so the
   day's CBK and NSE figures are published before it runs.
 - **Mondays, 15:40 UTC**, the full sweep.
-- **1st of the month, 03:05 UTC**, `--compact` — monthly rather than the
+- **1st of the month, 03:05 UTC**, `--compact`: monthly rather than the
   previous once a year.
 
 Absolute paths, not `~`: cron runs this as `kpulse`, whose home is not
@@ -307,7 +307,7 @@ push sender, which names `push_server.py`. Safe to run twice.
 ssh $K $V "sudo crontab -u kpulse -l | grep -v '^#'"
 ```
 
-**You should see** four lines: three collector, one push. Not seven — if you
+**You should see** four lines: three collector, one push. Not seven: if you
 see seven, the old ones were not stripped and you now have two schedules
 writing the same files. Re-run the block above.
 
@@ -356,14 +356,14 @@ account, and logrotate must not hand them to root on the first rotation.
 ### What this fixes, and what it does not
 
 Collecting more often fixes a figure that moves faster than you were looking.
-It does **nothing** for a figure whose publisher has stopped — asking a source
+It does **nothing** for a figure whose publisher has stopped: asking a source
 frozen on 16 July five times a day returns the same number five times a day.
 `kp --sources` tells the two apart, and marks the second `SOURCE IS STALE`.
 
 ### Why the charts do not get worse
 
 History is one row per run, so a monthly figure sampled daily would have drawn
-two dozen identical points — a flat line about a series that moves every month.
+two dozen identical points: a flat line about a series that moves every month.
 The collector stores the levels a figure has taken rather than the times it was
 looked at, so a sparkline reads the same whatever the schedule.
 
@@ -379,7 +379,7 @@ ssh $K $V "cd ~/kenya-pulse && cp public/data.json public/data.json.last"
 ```
 
 To roll back: `cp public/data.json.last public/data.json`. One command, under a
-second, no downtime — Caddy serves whatever file is there.
+second, no downtime: Caddy serves whatever file is there.
 
 ---
 
@@ -436,11 +436,11 @@ npx vercel --prod
 
 Build stays on the Lenovo. The 1 GB VM OOMs on `npm install`.
 
-**Rollback:** `npx vercel rollback` — instant, atomic.
+**Rollback:** `npx vercel rollback`: instant, atomic.
 
 The old `~/kenya-pulse/kenya-pulse-app` is not a checkout and never was, so
-`git pull` in it fails with *not a git repository*. Leave it in place — it is
-where `.vercel` comes from, and it may hold untracked files — but do not build
+`git pull` in it fails with *not a git repository*. Leave it in place: it is
+where `.vercel` comes from, and it may hold untracked files, but do not build
 from it again.
 
 ## On the Pixel
@@ -462,7 +462,7 @@ Open `https://kenya-pulse-app.vercel.app`, pull to refresh twice.
 
 ```
 VERDICT: APPROVE-WITH-PATCH  (patches applied below)
-DELTA-4: 4 — replaces a typed lane that overstated five of ten ladder rungs
+DELTA-4: 4, replaces a typed lane that overstated five of ten ladder rungs
 
 THREE QUESTIONS
   Necessary?  Yes. Deleted, there is no after-tax real-return ranking for
@@ -479,20 +479,20 @@ THREE QUESTIONS
 | Sev | Finding | Action |
 |---|---|---|
 | **S0** | Four live credentials in `building/SKILL.md`, in a GitHub repo | **Rotate now.** Outside this codebase; cannot patch it for you |
-| S2 | Runtime deps unpinned — G3 auto-fail | `requirements.txt` with three pinned versions |
+| S2 | Runtime deps unpinned: G3 auto-fail | `requirements.txt` with three pinned versions |
 | S2 | Three `except: pass` swallowing errors silently | Two now report a count; one narrowed to the three exceptions actually expected |
-| S2 | Font weights 700 and 800 — design skill bans ≥700 | All 16 reduced to 600 |
-| S2 | Emoji used as icons (☀ ☾ ◐ ⚙ ✕) — banned pattern | Replaced with drawn SVG carrying `aria-label` |
-| S2 | Icon buttons 34×34 and switch 31px — below the 44px floor | Both now 44px; the switch keeps its 31px visual on a 44px hit area |
-| S2 | Break marker animated `left`; vitals animated `height` | Marker position is data, not motion — animation deleted. Vitals now animate opacity and transform only |
+| S2 | Font weights 700 and 800: design skill bans ≥700 | All 16 reduced to 600 |
+| S2 | Emoji used as icons (☀ ☾ ◐ ⚙ ✕): banned pattern | Replaced with drawn SVG carrying `aria-label` |
+| S2 | Icon buttons 34×34 and switch 31px: below the 44px floor | Both now 44px; the switch keeps its 31px visual on a 44px hit area |
+| S2 | Break marker animated `left`; vitals animated `height` | Marker position is data, not motion; animation deleted. Vitals now animate opacity and transform only |
 | S3 | No `prefers-reduced-transparency` handling | Added; the sheet veil goes opaque |
 | S3 | One bare `px` font size | Quoted |
-| S3 | `main()` 162 lines against a 50-line limit | `gather()` extracted — all network in one function, no state. Remainder is a linear pipeline threading eleven values; splitting further would trade readability for a line count |
+| S3 | `main()` 162 lines against a 50-line limit | `gather()` extracted: all network in one function, no state. Remainder is a linear pipeline threading eleven values; splitting further would trade readability for a line count |
 
 ## Entropy ledger
 
 ```
-Removed:   2 indicators (core, credit) and everything that depended on them —
+Removed:   2 indicators (core, credit) and everything that depended on them:
            1 chain link, 1 relationship, 2 sheet rows, ~1.1 KB of collector
            and ~3.5 KB of app source
            1 animation that could not be justified in a sentence
@@ -534,10 +534,10 @@ record at both ends.
 
 ## C1 · Ship the files
 
-Take the files from a clean checkout rather than a download folder — there is
+Take the files from a clean checkout rather than a download folder: there is
 no ambiguity about which version you are shipping.
 
-Keep the checkout somewhere that survives a reboot — `/tmp` is cleared, and a
+Keep the checkout somewhere that survives a reboot (`/tmp` is cleared), and a
 missing clone makes every `scp` below fail silently enough to be confusing.
 
 ```bash
@@ -549,7 +549,7 @@ ssh $K $V "ls -l ~/kenya-pulse/push_server.py"
 ```
 
 **You should see** the file listed on the VM. If `scp` says *No such file or
-directory*, the clone did not happen — nothing below will work.
+directory*, the clone did not happen: nothing below will work.
 
 Debian 12 refuses system-wide `pip install` (PEP 668, "externally-managed
 environment"), so the service gets its own virtual environment. This keeps the
@@ -564,7 +564,7 @@ ssh $K $V "cd ~/kenya-pulse && python3 -m venv .venv-push \
 
 **You should see** `deps ok`.
 
-## C2 · Make the keys — once, and never in the repo
+## C2 · Make the keys, once, and never in the repo
 
 VAPID is how a push service knows the sender is you. The private half is a
 credential: it never enters source, a prompt, or a screenshot.
@@ -574,7 +574,7 @@ ssh $K $V "cd ~/kenya-pulse && .venv-push/bin/python push_server.py --genkeys ~/
 ```
 
 **You should see** one line: `Wrote /home/…/secrets/kenya-pulse-push.env (mode
-600)` and the **public** key. Only the public half is ever printed — the app
+600)` and the **public** key. Only the public half is ever printed: the app
 fetches it at runtime, so nothing needs rebuilding when it rotates.
 
 Edit `KP_VAPID_SUBJECT` in that file if you want a different contact address;
@@ -615,16 +615,16 @@ ssh $K $V "curl -s http://127.0.0.1:8100/health"
 **You should see** `{"ok":true,"subscriptions":0}`.
 
 If systemd reports *failed because of unavailable resources or another system
-error*, it could not find something the unit names — almost always the env file
+error*, it could not find something the unit names: almost always the env file
 from C2 or the venv from C1. `systemctl status kenya-pulse-push -l` names it.
 
 It binds `127.0.0.1` only. Caddy is the single thing on this box that faces the
-internet — check with `sudo ss -tulpn | grep 8100` and expect `127.0.0.1:8100`.
+internet: check with `sudo ss -tulpn | grep 8100` and expect `127.0.0.1:8100`.
 
 ## C4 · Publish it through Caddy
 
 This goes **inside the `gachichio.org { … }` block of
-`/etc/caddy/Caddyfile`** — it is configuration, not a shell command.
+`/etc/caddy/Caddyfile`** - it is configuration, not a shell command.
 `handle_path` strips the prefix on the way through, so the service sees
 `/health` rather than `/pulse/push/health`.
 
@@ -634,7 +634,7 @@ This goes **inside the `gachichio.org { … }` block of
 	}
 ```
 
-Edit it with `sudo nano /etc/caddy/Caddyfile`, or insert it in place — the
+Edit it with `sudo nano /etc/caddy/Caddyfile`, or insert it in place: the
 validate step below is what makes either safe:
 
 ```bash
@@ -646,7 +646,7 @@ if "8100" in s:
     sys.exit("already routed")
 m = re.search(r"^\s*gachichio\.org[^\n{]*\{[^\n]*$", s, re.M)
 if not m:
-    sys.exit("could not find the gachichio.org site block — edit by hand")
+    sys.exit("could not find the gachichio.org site block, edit by hand")
 p.write_text(s[:m.end()] + "\n\thandle_path /pulse/push/* {\n\t\treverse_proxy 127.0.0.1:8100\n\t}\n" + s[m.end():])
 print("inserted")
 EDIT
@@ -687,7 +687,7 @@ anyone has subscribed.
 ## C6 · Prove it on a real phone
 
 The one part no test on a build machine can do, and the only evidence that the
-whole chain — device, Google or Apple, this VM — actually carries a message.
+whole chain (device, Google or Apple, this VM) actually carries a message.
 `--test-send` fires immediately, ignoring the schedule, and deliberately does
 not consume the day's real send:
 
@@ -720,7 +720,7 @@ Ten minutes, both handsets.
 | Run `--send-due` | The notification arrives |
 | Tap it | The installed app opens on the briefing |
 
-iOS delivers web push **only** to a home-screen app — in a Safari tab there is
+iOS delivers web push **only** to a home-screen app: in a Safari tab there is
 no push at all, which is why the app says so rather than offering a toggle that
 could not work. iOS may also delay a push by a few minutes when the phone is
 idle; that is Apple's power management, not the schedule.
@@ -741,7 +741,7 @@ toggle on again.
 
 ## C8 · Starting the schedule afresh
 
-To clear every stored schedule and begin again — the store is one file, so
+To clear every stored schedule and begin again; the store is one file, so
 this is one command:
 
 ```bash
@@ -767,12 +767,12 @@ Measured, not estimated:
 | | |
 |---|---|
 | One `--send-due` pass | ~300 ms, 49 MB peak, freed on exit |
-| 288 passes a day (`*/5`) | ~86 s of CPU — 0.10% of one core |
+| 288 passes a day (`*/5`) | ~86 s of CPU, 0.10% of one core |
 | The API under systemd | one idle uvicorn worker, resident |
 | `push-subscriptions.json` | a few hundred bytes per device |
 | `push.log` | only written when something is sent or fails |
 
-The sender is a process that starts, reads a small file and exits — it holds
+The sender is a process that starts, reads a small file and exits; it holds
 nothing between runs. The log stays quiet deliberately: a line every five
 minutes saying "nothing happened" is a file that grows for ever and tells you
 nothing, so `--send-due` prints only when it sent, failed or dropped. Ask
