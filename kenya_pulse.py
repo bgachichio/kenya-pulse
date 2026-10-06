@@ -453,7 +453,27 @@ def _find_table(soup, *required):
     Locate a table by what its header says rather than by position. Tables get
     added and reordered; a header called 'YTM %' means the same thing wherever
     it sits on the page.
+
+    Returns the first match only - correct where a page carries exactly one
+    table of the kind asked for. A page that splits one listing across
+    several identically-headed tables needs _find_tables (plural) instead,
+    or this silently starves every row outside whichever one happens first.
     """
+    for head, rows in _find_tables(soup, *required):
+        return head, rows
+    return None, []
+
+
+def _find_tables(soup, *required):
+    """Every table whose header matches, not just the first.
+
+    Serrari's bond page splits its full listing across several tables that
+    share one header shape - short, medium and long maturities each in their
+    own <table>, all with the same ISIN/Type/.../Matures columns. Reading
+    only the first one (what _find_table does) silently starved both the
+    8-12 and the widened 5-15 year band of every bond outside it.
+    """
+    out = []
     for t in soup.find_all("table"):
         rows = t.find_all("tr")
         if len(rows) < 3:
@@ -461,8 +481,8 @@ def _find_table(soup, *required):
         head = [c.get_text(" ", strip=True).replace("↕", "").replace("↓", "")
                 .strip().lower() for c in rows[0].find_all(["th", "td"])]
         if all(any(r in h for h in head) for r in required):
-            return head, rows[1:]
-    return None, []
+            out.append((head, rows[1:]))
+    return out
 
 
 def _cell(d, *fragments):
@@ -495,40 +515,43 @@ def src_serrari_bonds():
 
     A ten-year yield is taken as the median of everything maturing eight to
     twelve years out, rather than a single issue. One bond can be illiquid or
-    oddly priced; a bucket cannot.
+    oddly priced; a bucket cannot. The listing is split across several
+    tables of identical shape - short, medium and long maturities each in
+    their own <table> - so every one of them is read, not just the first.
     """
     out = {}
     try:
         soup = BeautifulSoup(get("https://serrarigroup.com/ke/bonds").text, "lxml")
-        head, rows = _find_table(soup, "ytm", "matures", "type")
-        if not rows:
+        tables = _find_tables(soup, "ytm", "matures", "type")
+        if not tables:
             raise RuntimeError("yield table not found")
         today = datetime.now(timezone.utc).date()
         bonds = []
-        for r in rows:
-            cells = [c.get_text(" ", strip=True) for c in r.find_all(["td", "th"])]
-            if len(cells) < len(head):
-                continue
-            d = dict(zip(head, cells))
-            m = re.search(r"([\d.]+)", _cell(d, "ytm"))
-            try:
-                mat = datetime.strptime(_cell(d, "matures"), "%d %b %Y").date()
-            except ValueError:
-                continue
-            if not m:
-                continue
-            ytm = float(m.group(1))
-            if not (0 < ytm < 40):
-                continue
-            t = _cell(d, "type").lower()
-            if "infrastructure" in t:
-                kind = "infra"
-            elif "t-bond" in t:
-                kind = "gov"
-            else:
-                continue                        # corporate paper: neither bucket
-            bonds.append({"ytm": ytm, "type": kind,
-                          "years": (mat - today).days / 365.25})
+        for head, rows in tables:
+            for r in rows:
+                cells = [c.get_text(" ", strip=True) for c in r.find_all(["td", "th"])]
+                if len(cells) < len(head):
+                    continue
+                d = dict(zip(head, cells))
+                m = re.search(r"([\d.]+)", _cell(d, "ytm"))
+                try:
+                    mat = datetime.strptime(_cell(d, "matures"), "%d %b %Y").date()
+                except ValueError:
+                    continue
+                if not m:
+                    continue
+                ytm = float(m.group(1))
+                if not (0 < ytm < 40):
+                    continue
+                t = _cell(d, "type").lower()
+                if "infrastructure" in t:
+                    kind = "infra"
+                elif "t-bond" in t:
+                    kind = "gov"
+                else:
+                    continue                    # corporate paper: neither bucket
+                bonds.append({"ytm": ytm, "type": kind,
+                              "years": (mat - today).days / 365.25})
         if len(bonds) < 10:
             raise RuntimeError(f"only {len(bonds)} bonds parsed")
 

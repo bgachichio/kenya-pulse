@@ -285,6 +285,32 @@ else:
     ok("neither figure is a corporate bond's yield",
        10.88 not in got.values() and 17.91 not in got.values(), str(got))
 
+    # the live page actually splits this listing across several tables of
+    # identical shape (short, medium and long maturities each their own
+    # <table>) - reading only the first one is exactly the bug this function
+    # shipped with on 06-10-2026: 12 bonds parsed, bond10 and infra both None,
+    # because every issue in the 5-15 year band sat in a table never reached
+    split = len(BOND_DATA) // 2
+    def _rows(data):
+        return "".join(
+            f"<tr><td>{isin}</td><td>{btype}</td><td>{name}</td><td>{ytm}%</td>"
+            f"<td>{coupon}%</td><td>{dirty}</td><td>{income}</td><td>{left}</td>"
+            f"<td>{_matures(years)}</td></tr>"
+            for isin, btype, name, ytm, coupon, dirty, income, left, years in data
+        )
+    def _table(data):
+        return (f"<table><tr><th>ISIN ↕ i</th><th>Type ↕ i</th>"
+                f"<th>Bond ↕ i</th><th>YTM ↕ i</th><th>Coupon ↕ i</th>"
+                f"<th>Dirty ↕ i</th><th>Income /1m ↕ i</th>"
+                f"<th>Time left ↕ i</th><th>Matures ↕ i</th></tr>"
+                f"{_rows(data)}</table>")
+    SPLIT_PAGE = (DECOY_TABLES + _table(BOND_DATA[:split]) + _table(BOND_DATA[split:]))
+    got_split = parse_bonds(SPLIT_PAGE)
+    ok("bonds split across two identically-headed tables are both read",
+       got_split.get("bond10") == got.get("bond10")
+       and got_split.get("infra") == got.get("infra"),
+       str(got_split))
+
     ok("decoy tables alone, with no yield table, yield nothing",
        parse_bonds(DECOY_TABLES) == {}, str(parse_bonds(DECOY_TABLES)))
     buf = io.StringIO()
