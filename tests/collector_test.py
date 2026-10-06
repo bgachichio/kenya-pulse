@@ -211,6 +211,111 @@ else:
 
     kp.get = _real_get
 
+print("\n── READING SERRARI'S BOND YIELD TABLE")
+# Real column headers from the live page on 06-10-2026: every header carries a
+# sort arrow and an info icon ("YTM % ↕ i"), and the maturity column reads
+# "Matures", not "Maturity". Both changes broke src_serrari_bonds() silently -
+# the table was never found, Serrari supplied nothing, and the ladder fell
+# back to a typed bond10 figure that was already weeks old, with no error
+# louder than a log line nobody was watching. This fixture is that page's real
+# structure, decoys included, so a regression here cannot pass by accident.
+if not HAVE_BS4:
+    print("  ! skipped: beautifulsoup4 and lxml are not installed")
+else:
+    _real_get = kp.get
+    _today = kp.datetime.now(kp.timezone.utc).date()
+
+    def _matures(years):
+        return (_today + kp.timedelta(days=int(years * 365.25))).strftime("%d %b %Y")
+
+    def parse_bonds(html):
+        kp.get = lambda *a, **k: types.SimpleNamespace(text=html)
+        return kp.src_serrari_bonds()
+
+    # (isin, type, name, ytm%, coupon%, dirty, income/1m, time left, years out)
+    BOND_DATA = [
+        ("KE5000009653", "T-Bond", "FXD1/2019/10Yr", "10.79", "12.44", "105.17", "KES 100,543", "...", 9.8),
+        ("KE2000002176", "T-Bond", "FXD1/2011/20Yr", "11.30", "10.00", "99.62", "KES 90,339", "...", 10.4),
+        ("KE4000003089", "T-Bond", "FXD1/2010/25Yr", "12.89", "11.25", "95.54", "KES 105,971", "...", 11.2),
+        ("KE2000002135", "T-Bond", "SDB1/2011/30Yr", "13.20", "12.00", "94.83", "KES 113,887", "...", 14.3),
+        ("KE1000000001", "T-Bond", "FXD2/2015/15Yr", "10.90", "11.00", "98.00", "KES 95,000", "...", 6.5),
+        ("KE1000000002", "T-Bond", "FXD3/2016/14Yr", "11.05", "11.20", "98.40", "KES 96,000", "...", 6.9),
+        ("KE1000000004", "T-Bond", "FXD4/2017/13Yr", "11.40", "11.50", "99.00", "KES 97,000", "...", 7.5),
+        ("KE5000006980", "Infrastructure Bond", "IFB1/2017/12Yr", "11.86", "12.50", "103.11", "KES 121,232", "...", 9.1),
+        ("KE8000006430", "Infrastructure Bond", "IFB1/2024/8.5Yr", "12.42", "18.46", "127.41", "KES 144,887", "...", 10.9),
+        ("KE1000000005", "Infrastructure Bond", "IFB3/2023/10Yr", "12.00", "13.00", "105.00", "KES 125,000", "...", 11.8),
+        ("KE7000003546", "Infrastructure Bond", "IFB1/2021/18Yr", "12.43", "12.67", "102.00", "KES 124,222", "...", 12.4),
+        ("KE1000000003", "Infrastructure Bond", "IFB2/2022/9Yr", "11.60", "12.00", "101.00", "KES 118,000", "...", 7.0),
+        ("KE7000007760", "Corporate Bond", "KENYA MORTGAGE REFINAN", "10.88", "12.50", "104.78", "KES 101,399", "...", 10.1),
+        ("KE9800007214", "Corporate Bond", "LINZI 003 IABS FXD MED", "17.91", "15.04", "89.09", "KES 168,821", "...", 13.7),
+    ]
+    BOND_ROWS = "".join(
+        f"<tr><td>{isin}</td><td>{btype}</td><td>{name}</td><td>{ytm}%</td>"
+        f"<td>{coupon}%</td><td>{dirty}</td><td>{income}</td><td>{left}</td>"
+        f"<td>{_matures(years)}</td></tr>"
+        for isin, btype, name, ytm, coupon, dirty, income, left, years in BOND_DATA
+    )
+    # the explainer tables that sit above the yield table on the real page -
+    # no ytm/matures/type column between them, so they must not be mistaken
+    # for the one that carries the actual rates
+    DECOY_TABLES = """
+    <table><tr><th>Product</th><th>Typical period</th><th>How the return is earned</th></tr>
+      <tr><td>Treasury bill</td><td>91, 182 or 364 days</td><td>Bought below face value</td></tr>
+      <tr><td>Treasury bond</td><td>Medium to long term</td><td>Usually pays interest</td></tr></table>
+    <table><tr><th>Tax treatment</th><th>Tax deducted</th><th>Approximate net annual</th></tr>
+      <tr><td>15% withholding tax</td><td>KES 18,000</td><td>KES 102,000</td></tr>
+      <tr><td>10% withholding tax</td><td>KES 12,000</td><td>KES 108,000</td></tr>
+      <tr><td>Tax-exempt infrastructure</td><td>Nil</td><td>KES 120,000</td></tr></table>"""
+    YIELD_TABLE = f"""
+    <table><tr><th>ISIN ↕ i</th><th>Type ↕ i</th><th>Bond ↕ i</th><th>YTM ↕ i</th>
+      <th>Coupon ↕ i</th><th>Dirty ↕ i</th><th>Income /1m ↕ i</th>
+      <th>Time left ↕ i</th><th>Matures ↕ i</th></tr>
+      {BOND_ROWS}</table>"""
+
+    got = parse_bonds(DECOY_TABLES + YIELD_TABLE)
+    ok("the decorated, renamed header is still found and bond10 is read",
+       "bond10" in got, str(got))
+    ok("and infra is read alongside it", "infra" in got, str(got))
+    ok("bond10 is the median T-Bond yield within 8 to 12 years",
+       got.get("bond10") == round(kp.st.median([10.79, 11.30, 12.89]), 2),
+       str(got.get("bond10")))
+    ok("infra is the median Infrastructure Bond yield within 8 to 12 years",
+       got.get("infra") == round(kp.st.median([11.86, 12.42, 12.00]), 2),
+       str(got.get("infra")))
+    ok("neither figure is a corporate bond's yield",
+       10.88 not in got.values() and 17.91 not in got.values(), str(got))
+
+    ok("decoy tables alone, with no yield table, yield nothing",
+       parse_bonds(DECOY_TABLES) == {}, str(parse_bonds(DECOY_TABLES)))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        parse_bonds(DECOY_TABLES)
+    ok("and the failure is logged, not swallowed",
+       "serrari bonds FAILED" in buf.getvalue(), buf.getvalue().strip())
+
+    # fewer than two issues in the 8-12 band widens to 5-15 rather than
+    # reporting nothing - the one government bond in dropping the 10.4 and
+    # 11.2-year rows leaves a single 9.8-year issue, which should not pass on
+    # its own
+    THIN_ROWS = "".join(
+        f"<tr><td>{isin}</td><td>{btype}</td><td>{name}</td><td>{ytm}%</td>"
+        f"<td>{coupon}%</td><td>{dirty}</td><td>{income}</td><td>{left}</td>"
+        f"<td>{_matures(years)}</td></tr>"
+        for isin, btype, name, ytm, coupon, dirty, income, left, years in BOND_DATA
+        if years not in (10.4, 11.2)
+    )
+    THIN_TABLE = f"""
+    <table><tr><th>ISIN ↕ i</th><th>Type ↕ i</th><th>Bond ↕ i</th><th>YTM ↕ i</th>
+      <th>Coupon ↕ i</th><th>Dirty ↕ i</th><th>Income /1m ↕ i</th>
+      <th>Time left ↕ i</th><th>Matures ↕ i</th></tr>
+      {THIN_ROWS}</table>"""
+    got_thin = parse_bonds(DECOY_TABLES + THIN_TABLE)
+    ok("a lone issue in the narrow band widens to 5-15 years rather than standing alone",
+       got_thin.get("bond10") == round(kp.st.median([10.79, 10.90, 11.05, 11.40, 13.20]), 2),
+       str(got_thin.get("bond10")))
+
+    kp.get = _real_get
+
 print("\n── A DAILY FAST PASS MUST NOT DAMAGE THE SLOW SERIES")
 # The schedule in DEPLOY.md A6 runs --fast daily and the full sweep weekly. A
 # fast row simply omits the indicators it does not collect, so an annual figure

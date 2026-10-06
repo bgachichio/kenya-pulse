@@ -465,13 +465,33 @@ def _find_table(soup, *required):
     return None, []
 
 
+def _cell(d, *fragments):
+    """The value of the first column whose (already-lowercased) header
+    contains every fragment given, or "" if none matches.
+
+    Serrari decorates every header with a sort arrow and an info icon
+    ('YTM % ↕ i'), and has renamed columns before ('Maturity' -> 'Matures'),
+    so an exact key lookup like d['ytm %'] breaks the moment the page's own
+    markup changes even though the data underneath has not. Matching on a
+    fragment survives both; it is the same reason _find_table locates a
+    table by its header text rather than by position.
+    """
+    for k, v in d.items():
+        if all(f in k for f in fragments):
+            return v
+    return ""
+
+
 def src_serrari_bonds():
     """
     Treasury bond yields, from Serrari's live comparison of 77 issues.
 
-    The `Type` column separates government from infrastructure paper, which is
-    the distinction that matters here: infrastructure bonds are tax-exempt and
-    sit at the top of the ladder because of it.
+    The `Type` column separates government paper ('T-Bond') from
+    infrastructure paper ('Infrastructure Bond'), which is the distinction
+    that matters here: infrastructure bonds are tax-exempt and sit at the top
+    of the ladder because of it. The same page also lists corporate paper
+    (Kenya Mortgage Refinance, LINZI and similar); that is neither, and is
+    left out of both buckets rather than silently counted as government debt.
 
     A ten-year yield is taken as the median of everything maturing eight to
     twelve years out, rather than a single issue. One bond can be illiquid or
@@ -480,7 +500,7 @@ def src_serrari_bonds():
     out = {}
     try:
         soup = BeautifulSoup(get("https://serrarigroup.com/ke/bonds").text, "lxml")
-        head, rows = _find_table(soup, "ytm", "maturity", "type")
+        head, rows = _find_table(soup, "ytm", "matures", "type")
         if not rows:
             raise RuntimeError("yield table not found")
         today = datetime.now(timezone.utc).date()
@@ -490,9 +510,9 @@ def src_serrari_bonds():
             if len(cells) < len(head):
                 continue
             d = dict(zip(head, cells))
-            m = re.search(r"([\d.]+)", d.get("ytm %", ""))
+            m = re.search(r"([\d.]+)", _cell(d, "ytm"))
             try:
-                mat = datetime.fromisoformat(d.get("maturity", "")[:10]).date()
+                mat = datetime.strptime(_cell(d, "matures"), "%d %b %Y").date()
             except ValueError:
                 continue
             if not m:
@@ -500,7 +520,14 @@ def src_serrari_bonds():
             ytm = float(m.group(1))
             if not (0 < ytm < 40):
                 continue
-            bonds.append({"ytm": ytm, "type": (d.get("type") or "").lower(),
+            t = _cell(d, "type").lower()
+            if "infrastructure" in t:
+                kind = "infra"
+            elif "t-bond" in t:
+                kind = "gov"
+            else:
+                continue                        # corporate paper: neither bucket
+            bonds.append({"ytm": ytm, "type": kind,
                           "years": (mat - today).days / 365.25})
         if len(bonds) < 10:
             raise RuntimeError(f"only {len(bonds)} bonds parsed")
