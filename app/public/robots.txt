@@ -1,0 +1,5 @@
+# Search and AI-search crawlers are welcome. Training crawlers are a separate choice.
+User-agent: *
+Allow: /
+
+Sitemap: https://kenyapulse.gachichio.org/sitemap.xml
