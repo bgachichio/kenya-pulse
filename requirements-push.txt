@@ -2,7 +2,8 @@
 # Pinned: an unpinned install is a different program every time it is deployed.
 # 13-10-2026: refreshed (aiohttp, multidict 7, pydantic, starlette 1.8); OSV clean, none outdated at these pins.
 # 2026-10-19: vmupdates alert cleared (certifi, fastapi, py-vapid, starlette); OSV clean.
-fastapi==0.146.0
+# 2026-10-19: fastapi released 0.147.0 within the hour of the above; same pass, OSV clean.
+fastapi==0.147.0
 uvicorn==0.54.0
 pywebpush==2.5.0
 # pulled in by the above, pinned so the set is reproducible
