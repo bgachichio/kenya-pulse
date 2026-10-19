@@ -1,15 +1,17 @@
 # Push service only. The collector's own dependencies are in requirements.txt.
 # Pinned: an unpinned install is a different program every time it is deployed.
 # 13-10-2026: refreshed (aiohttp, multidict 7, pydantic, starlette 1.8); OSV clean, none outdated at these pins.
-fastapi==0.143.0
+# 2026-10-19: vmupdates alert cleared (certifi, fastapi, py-vapid, starlette); OSV clean.
+fastapi==0.146.0
 uvicorn==0.54.0
 pywebpush==2.5.0
 # pulled in by the above, pinned so the set is reproducible
-starlette==1.8.0
+starlette==1.9.0
 pydantic==2.14.1
-py-vapid==1.9.4
+py-vapid==1.9.6
 cryptography==50.0.2
 aiohttp==3.14.5
 multidict==7.1.0
 requests==2.34.2
 urllib3==2.8.0
+certifi==2026.10.18
