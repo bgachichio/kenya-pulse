@@ -968,17 +968,15 @@ sig_rich = [
     _sig("tbill", 8.7687, "%", 0.02), _sig("inflation", 6.6, "%", 0.2),
     _sig("lending", 14.39, "%", 0.0), _sig("deposit", 6.93, "%", 0.01),
     _sig("npl", 14.6, "%", 0.0), _sig("kes_usd", 129.43, "", 0.05),
-    _sig("nasi", 248.98, "", -2.05),
-    _sig("mktcap", 4178.45, " KES bn", 30.5), _sig("debt_gdp", 69.9, "%", 0.0),
+    _sig("nasi", 248.98, "", -2.05), _sig("debt_gdp", 69.9, "%", 0.0),
     _sig("fed_funds", 3.63, "%", 0.0), _sig("us10y", 4.78, "%", 0.01),
-    _sig("ssa_gdp", 4.3, "%", 0.0),
 ]
 ladder_rich = [
-    {"label": "Infrastructure bond", "gross": 12.80, "real": 5.47, "stale": False},
-    {"label": "10-year bond", "gross": 13.45, "real": 5.21, "stale": False},
-    {"label": "Top-quartile MMF", "gross": 12.10, "real": 2.49, "stale": True},
-    {"label": "91-day bill", "gross": 8.77, "real": 0.3, "stale": False},
-    {"label": "Cash", "gross": 0, "real": -6.60, "stale": False},
+    {"id": "infra", "label": "Infrastructure bond", "gross": 12.80, "real": 5.47, "stale": False},
+    {"id": "bond10", "label": "10-year bond", "gross": 13.45, "real": 5.21, "stale": False},
+    {"id": "mmf_top", "label": "Top-quartile MMF", "gross": 12.10, "real": 2.49, "stale": True},
+    {"id": "tbill", "label": "91-day bill", "gross": 8.77, "real": 0.3, "stale": False},
+    {"id": "cash", "label": "Cash", "gross": 0, "real": -6.60, "stale": False},
 ]
 # 7 of these beat inflation, matching the count asserted below.
 ladder_rich += [{"label": f"instrument {n}", "gross": 9.0, "real": 0.4, "stale": False}
@@ -1012,34 +1010,44 @@ leading_rich = [
 ]
 
 out = kp.briefing(sig_rich, ladder_rich, breaks_rich, chain_rich, leading_rich, "2026-09-09")
-ok("every section is labelled in bold, and every tag closes",
-   out.count("<b>") == 12 and out.count("<b>") == out.count("</b>"),
-   f"{out.count(chr(60)+'b'+chr(62))} open, {out.count('</b>')} close")
 ok("a rising reading gets an up arrow", "8.7507% ▲" in out, out)
 ok("an unchanged reading gets no arrow at all",
    "8.75% ▲" not in out and "8.75% ▼" not in out, out)
 ok("a falling reading gets a down arrow", "248.98 ▼" in out, out)
-ok("the beat-inflation count is stated once, not twice as two paragraphs used to",
-   "8 of 10 beat inflation" in out and out.count("beat inflation") == 1, out)
-ok("the off-range line carries the mechanism, not just the number",
-   "holding spreads wide while policy eases" in out, out)
-ok("but only the first sentence of it - the rest is the app's job",
-   "more of the cut has yet to reach borrowers" not in out, out)
-ok("the percentile range sits next to the number", "usual 3.5–5.5pp" in out, out)
-ok("outlook names the specific lagging link, not a bare list of five",
-   "lending rate hasn't followed policy" in out.lower(), out)
-ok("and carries its own lag, read from CHAIN, not invented",
-   "~5mo typical lag" in out, out)
-ok("gdp growth is not named - one link is the point of the section, not five",
+ok("the beat-inflation count is stated once", "8/10 beat CPI" in out, out)
+ok("a break out of range carries its own short alert sentence, not the app's",
+   "lending hasn't followed the cut" in out, out)
+ok("named by value, not by the app's percentile range or long prose",
+   "Bank margin 5.64pp" in out
+   and "holding spreads wide while policy eases" not in out
+   and "norm 3.5" not in out, out)
+ok("a break being out of range takes priority over the chain's own lagging link",
    "gdp growth" not in out.lower(), out)
-ok("the leading signal names the mover, the direction and the target",
-   "<b>Building</b> brent crude up 3 straight reads" in out
-   and "pointing at headline inflation over 4 to 8 weeks" in out, out)
+ok("the leading signal names the mover, the direction and the target, in the app's short form",
+   "Brent crude up 3" in out and "inflation in 4-8wks" in out, out)
 ok("a steady signal is not the one picked, even if it sits earlier in the list",
    "us fed funds" not in out.lower(), out)
+ok("the ladder's own id picks the short name, not a guess from the label",
+   "10yr +5.21%" in out and "Infra +5.47%" in out, out)
 words = len(out.split())
-ok("same order of length as the message it replaced (122 words), not much longer",
-   words <= 145, f"{words} words")
+ok("at least half the words of the version this replaced (128 on this fixture, "
+   "114 on a typical day)", words <= 64, f"{words} words")
+
+no_break = kp.briefing(sig_rich, ladder_rich, [], chain_rich, leading_rich, "2026-09-09")
+ok("no break out of range falls back to the chain's own lagging link",
+   "lending rate hasn't passed the policy move through" in no_break.lower(), no_break)
+ok("and carries its own lag, read from CHAIN, not invented",
+   "~5mo typical lag" in no_break, no_break)
+ok("gdp growth is not named - one link is the point of the line, not two",
+   "gdp growth" not in no_break.lower(), no_break)
+
+waiting_only = kp.briefing(
+    sig_rich, [], [],
+    [{"id": "cbr", "label": "Policy rate", "lagMonths": 0, "why": "The MPC decides",
+      "status": "waiting", "readings": 1}],
+    [], "2026-09-09")
+ok("a chain with nothing moved and nothing still just says how many readings it needs",
+   "needs 2 more readings to show movement" in waiting_only, waiting_only)
 
 thin = kp.briefing([_sig("cbr", 8.75, "%", None)], [], [], [], [], "2026-01-01")
 ok("a bare first run - no history, no ladder, no breaks - does not crash",
@@ -1047,7 +1055,7 @@ ok("a bare first run - no history, no ladder, no breaks - does not crash",
 ok("and shows no arrow when there is nothing yet to compare against",
    "▲" not in thin and "▼" not in thin, thin)
 ok("no leading indicators means no Building line, not an empty one",
-   "<b>Building</b>" not in thin, thin)
+   "\U0001F4C8" not in thin, thin)
 
 ok("a hand-typed sheet problem cannot break the alert's HTML",
    kp._esc("<script>&x</script>") == "&lt;script&gt;&amp;x&lt;/script&gt;",

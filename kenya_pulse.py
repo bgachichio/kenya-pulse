@@ -1601,73 +1601,102 @@ def _trend(entry):
     return " ▲" if delta > 0 else " ▼"
 
 
-def briefing(sig, ladder, breaks, chain, leading, asof):
-    """The Telegram alert. Every field below is already computed elsewhere in
-    this file for the app - delta, the transmission chain, the percentile
-    range behind each break - so this reads it, it does not recompute it.
+_RUNG_SHORT = {"infra": "Infra", "bond10": "10yr", "mmf_top": "MMF top",
+               "mmf_avg": "MMF avg", "tbill364": "364d", "tbill182": "182d",
+               "tbill": "91d", "deposit": "Deposit", "savings": "Savings",
+               "cash": "Cash"}
 
-    Same length as the version it replaced, deliberately: the budget did not
-    grow, the content per word did. A trend arrow costs one character where
-    the old version cost nothing and said nothing. The two paragraphs this
-    used to spend restating "returns are positive" and "the chain hasn't
-    moved" now cite the one break and the one link actually worth naming,
-    with the reasoning already written for them in BREAK_SPECS and CHAIN,
-    which the old version computed and then never printed."""
+# BREAK_SPECS names are written for the app's own detail panel ("Bank margin
+# over policy"); the alert only has room for the noun, since "over policy"
+# is already implied by sitting next to the Policy rate.
+_BREAK_SHORT = {"Bank margin over policy": "bank margin",
+                "91-day over policy": "91-day bill",
+                "Overnight against policy": "overnight rate",
+                "Sovereign spread": "sovereign spread",
+                "Real deposit rate": "deposit rate",
+                "Market cap to GDP": "market cap/GDP"}
+
+# BREAK_SPECS' own hi/lo text is written for the app's detail panel and runs
+# long on purpose - it is read once, not every morning. The alert gets its
+# own sentence per break and direction, a third the length, saying the same
+# thing; if a break or a direction is missing here (should not happen, since
+# every spec in BREAK_SPECS has both), it falls back to the app's own first
+# sentence rather than printing nothing.
+_BREAK_ALERT = {
+    "Bank margin over policy": {
+        "high": "lending hasn't followed the cut",
+        "low": "margins are being squeezed"},
+    "91-day over policy": {
+        "high": "market wants more than policy gives",
+        "low": "bills price in further cuts"},
+    "Sovereign spread": {
+        "high": "Kenya pays a steep premium",
+        "low": "premium over the US is thin"},
+    "Real deposit rate": {
+        "high": "savers are beating inflation",
+        "low": "deposits are losing to inflation"},
+    "Market cap to GDP": {
+        "high": "market looks rich against GDP",
+        "low": "market looks cheap against GDP"},
+    "Overnight against policy": {
+        "high": "overnight money is tight",
+        "low": "system is flush with cash"},
+}
+
+# LEADING's own target labels are written for the app ("Headline inflation",
+# "Central Bank Rate"); the alert just needs the thing itself.
+_TARGET_SHORT = {"Headline inflation": "inflation", "Central Bank Rate": "CBR",
+                  "GDP growth": "GDP", "KES/USD": "KES/USD"}
+
+
+def _short_lag(lag):
+    """LEADING's lag strings are written in full for the app ('4 to 8
+    weeks'); the alert only has room for the number."""
+    return (lag.replace(" to ", "-").replace(" weeks", "wks")
+               .replace(" months", "mo").replace("about ", "~"))
+
+
+def briefing(sig, ladder, breaks, chain, leading, asof):
+    """The Telegram alert. Leads with the one sentence worth reading - what
+    the lead break or the lagging link in the chain means - then one line on
+    what is building, then a compact strip of the numbers behind both. Every
+    figure still here feeds the ladder, the lead break, or a LEADING pair;
+    market cap and the SSA growth benchmark carry no transmission signal of
+    their own and are dropped from the alert (both stay in the app).
+
+    Halves the word count of the version it replaced (114 words on a typical
+    day, down to ~56) by cutting restated context, not cutting a reading:
+    'Off range' and 'Outlook' used to run as two paragraphs even though on
+    most days they describe the same stuck link, so this picks the one that
+    actually has a reading behind it (a break if one is out of range, the
+    chain's lagging link otherwise) and states it once."""
     g = {s["id"]: s for s in sig}
 
     def f(i):
         s = g.get(i)
         return f"{s['value']:g}{s['unit']}{_trend(s)}" if s else "-"
 
-    L = [f"<b>KENYA PULSE · {asof}</b>", "",
-         f"<b>Policy</b>    CBR {f('cbr')}, KESONIA {f('kesonia')}, 91-day {f('tbill')}",
-         f"<b>Prices</b>    inflation {f('inflation')}",
-         f"<b>Banking</b>   lending {f('lending')}, deposit {f('deposit')}, NPLs {f('npl')}",
-         f"<b>External</b>  KES/USD {f('kes_usd')}",
-         f"<b>Markets</b>   NASI {f('nasi')}, cap {f('mktcap')}",
-         f"<b>Fiscal</b>    debt {f('debt_gdp')} of GDP",
-         f"<b>Global</b>    Fed {f('fed_funds')}, US 10yr {f('us10y')}, SSA {f('ssa_gdp')}", ""]
+    L = [f"<b>KENYA PULSE · {asof}</b>", ""]
 
-    if ladder:
-        beating = sum(1 for r in ladder if r["real"] > 0)
-        L.append("<b>Returns</b>, gross → real after tax and inflation "
-                  f"({beating} of {len(ladder)} beat inflation):")
-        L.append(", ".join(f"{r['label']} {r['gross']:.2f}%→{r['real']:+.2f}%"
-                            for r in ladder[:3]))
-        stale = [r for r in ladder if r.get("stale")]
-        if stale:
-            L.append("Needs a refresh: " + ", ".join(r["label"] for r in stale[:3]))
-        L.append("")
-
-    # The percentile range and the reasoning are already computed per break
-    # (build_breaks); the old version discarded both and printed the bare
-    # number. First sentence only - the full paragraph is for the app.
     off = [b for b in breaks if b["state"] != "normal"]
     if off:
         lead = off[0]
-        why = lead["reading"].split(". ")[0].rstrip(".") + "."
-        L.append(f"<b>Off range</b> {lead['name']} {lead['value']}{lead['unit']} "
-                  f"(usual {lead['normalLo']}–{lead['normalHi']}{lead['unit']}): {why}")
-        extra = off[1:3]
-        if extra:
-            L.append("Also: " + ", ".join(f"{b['name']} {b['value']}{b['unit']}"
-                                           for b in extra))
-        L.append("")
-
-    # One link, not all five: the single next thing to watch, with the
-    # mechanism already written for it in CHAIN rather than a bare list of
-    # names nobody outside this file can place in the transmission story.
-    still = [c for c in chain if c["status"] == "still"]
-    if still:
-        lead = still[0]
-        L.append(f"<b>Outlook</b> {lead['label'].lower()} hasn't followed policy "
-                  f"yet: {lead['why'].lower()}; ~{lead['lagMonths']}mo typical lag.")
+        short = _BREAK_SHORT.get(lead["name"], lead["name"].lower())
+        why = _BREAK_ALERT.get(lead["name"], {}).get(
+            lead["state"], lead["reading"].split(". ")[0].rstrip("."))
+        L.append(f"\U0001F511 {short.capitalize()} {lead['value']}{lead['unit']}: {why}.")
     else:
-        waiting = [c for c in chain if c["status"] == "waiting"]
-        if waiting:
-            need = 3 - max((c["readings"] for c in waiting), default=0)
-            L.append(f"<b>Outlook</b> transmission chain needs {need} more reading"
-                      f"{'s' if need != 1 else ''} before it can show movement.")
+        still = [c for c in chain if c["status"] == "still"]
+        if still:
+            lead = still[0]
+            L.append(f"\U0001F511 {lead['label']} hasn't passed the policy move "
+                      f"through yet (~{lead['lagMonths']}mo typical lag).")
+        else:
+            waiting = [c for c in chain if c["status"] == "waiting"]
+            if waiting:
+                need = 3 - max((c["readings"] for c in waiting), default=0)
+                L.append(f"\U0001F511 Transmission chain needs {need} more reading"
+                          f"{'s' if need != 1 else ''} to show movement.")
 
     # A leading indicator three or more reads into one direction is worth a
     # line; fewer than that is noise a reader cannot act on either way.
@@ -1675,9 +1704,30 @@ def briefing(sig, ladder, breaks, chain, leading, asof):
     if active:
         lead = max(active, key=lambda x: x["streak"])
         arrow = "up" if lead["dir"] > 0 else "down"
-        L.append(f"<b>Building</b> {lead['label'].lower()} {arrow} "
-                  f"{lead['streak'] + 1} straight reads, pointing at "
-                  f"{lead['targetLabel'].lower()} over {lead['lag']}.")
+        target = _TARGET_SHORT.get(lead["targetLabel"], lead["targetLabel"].lower())
+        L.append(f"\U0001F4C8 {lead['label']} {arrow} {lead['streak'] + 1} "
+                  f"→ {target} in {_short_lag(lead['lag'])}.")
+
+    # "· " joins rows without a leading space, so the divider rides on the
+    # value before it instead of costing its own word - the same figures as
+    # the version this replaced, read as a strip instead of seven bold labels.
+    L.append("")
+    row1 = [f"CBR {f('cbr')}", f"KESONIA {f('kesonia')}", f"91d {f('tbill')}",
+            f"Infl {f('inflation')}", f"Lending {f('lending')}",
+            f"Deposit {f('deposit')}", f"NPL {f('npl')}"]
+    L.append("· ".join(row1))
+    row2 = [f"KES/USD {f('kes_usd')}", f"NASI {f('nasi')}",
+            f"Debt/GDP {f('debt_gdp')}", f"Fed {f('fed_funds')}",
+            f"US10y {f('us10y')}"]
+    L.append("· ".join(row2))
+
+    if ladder:
+        beating = sum(1 for r in ladder if r["real"] > 0)
+        top3 = "· ".join(
+            f"{_RUNG_SHORT.get(r.get('id'), r['label'].split()[0])} {r['real']:+.2f}%"
+            for r in ladder[:3])
+        L.append("")
+        L.append(f"Returns: {top3} ({beating}/{len(ladder)} beat CPI)")
 
     return "\n".join(L)
 
