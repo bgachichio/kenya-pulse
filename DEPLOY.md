@@ -87,7 +87,9 @@ wrong thing shipped.
 ```bash
 SRC=~/kenya-pulse-src
 if [ -d "$SRC/.git" ]; then
-  git -C "$SRC" pull origin main
+  git -C "$SRC" fetch origin main -q
+  git -C "$SRC" checkout main -q 2>/dev/null || git -C "$SRC" checkout -B main origin/main -q
+  git -C "$SRC" reset --hard origin/main -q
 else
   git clone -b main https://github.com/bgachichio/kenya-pulse "$SRC"
 fi
@@ -97,6 +99,13 @@ cd "$SRC" && git log --oneline -1 && git status --short
 **You should see** one commit line and nothing else. Anything listed under
 `git status` is a local edit that a `pull` did not overwrite: deal with it
 before going on.
+
+`$SRC` is a deploy mirror, never a place to commit: `reset --hard` to
+`origin/main` on purpose, so it always lands on the right branch and the
+right commit even if a prior session left it checked out somewhere else
+(20-10-2026: found on a stale `seo-heads`, 5 commits behind; a plain `git
+pull origin main` refused to merge the two, and the files on disk - silently
+unchanged - got copied up to the VM anyway).
 
 Then check the working copy really is what the remote holds:
 
