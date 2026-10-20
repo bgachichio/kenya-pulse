@@ -1033,6 +1033,18 @@ words = len(out.split())
 ok("at least half the words of the version this replaced (128 on this fixture, "
    "114 on a typical day)", words <= 64, f"{words} words")
 
+# str.capitalize() on "market cap/GDP" gives "Market cap/gdp" - it lowercases
+# the whole rest of the string, acronym included. Caught in review, not by
+# this fixture (its own lead break never named an acronym).
+mktcap_break = [
+    {"name": "Market cap to GDP", "value": 32.1, "unit": "%",
+     "normalLo": 15.0, "normalHi": 30.0, "state": "high",
+     "reading": "The market is large against the economy behind it."},
+]
+out_mktcap = kp.briefing(sig_rich, ladder_rich, mktcap_break, chain_rich, leading_rich, "2026-09-09")
+ok("a short label with an acronym keeps its capitals",
+   "Market cap/GDP" in out_mktcap, out_mktcap)
+
 no_break = kp.briefing(sig_rich, ladder_rich, [], chain_rich, leading_rich, "2026-09-09")
 ok("no break out of range falls back to the chain's own lagging link",
    "lending rate hasn't passed the policy move through" in no_break.lower(), no_break)

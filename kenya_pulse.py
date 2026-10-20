@@ -1684,7 +1684,11 @@ def briefing(sig, ladder, breaks, chain, leading, asof):
         short = _BREAK_SHORT.get(lead["name"], lead["name"].lower())
         why = _BREAK_ALERT.get(lead["name"], {}).get(
             lead["state"], lead["reading"].split(". ")[0].rstrip("."))
-        L.append(f"\U0001F511 {short.capitalize()} {lead['value']}{lead['unit']}: {why}.")
+        # str.capitalize() lowercases the rest of the string too, which would
+        # turn "market cap/GDP" into "market cap/gdp" - only the first letter
+        # changes, acronyms in the short label stay as written.
+        L.append(f"\U0001F511 {short[:1].upper()}{short[1:]} "
+                  f"{lead['value']}{lead['unit']}: {why}.")
     else:
         still = [c for c in chain if c["status"] == "still"]
         if still:
