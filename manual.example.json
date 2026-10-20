@@ -7,8 +7,9 @@
     "value": 69.9,
     "asOf": "2026-03-31"
   },
+  "_cab_note": "CBK restates this as a rolling 12-month % of GDP in every MPC press release (bi-monthly), not a single quarter - asOf is the release's own 'X months to <month>' end date, e.g. 12 months to August 2026 below.",
   "cab": {
-    "value": -3.0,
-    "asOf": "2026-06-30"
+    "value": -3.1,
+    "asOf": "2026-08-31"
   }
 }

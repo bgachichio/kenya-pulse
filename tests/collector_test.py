@@ -471,8 +471,14 @@ print("\n── OLD IS NOT THE SAME AS OVERDUE")
 C = kp.MANUAL_CADENCE
 ok("quarterly GDP tolerates a real publication lag",
    C["gdp"] >= 190, str(C["gdp"]))
-ok("so does the current account", C["cab"] >= 190, str(C["cab"]))
 ok("and debt to GDP", C["debt_gdp"] >= 190, str(C["debt_gdp"]))
+# The current account is not quarterly BOP statistics, which do lag like the
+# two above - CBK restates it as a rolling 12-month figure in every bi-monthly
+# MPC release, so a 200-day grace period let it sit a full cycle stale before
+# ever flagging it (caught 2026-10-20: the app held 30-06-2026's -3.0% past
+# the 07-10-2026 release that had already moved it to -3.1%, 12mo to Aug).
+ok("the current account follows the bi-monthly MPC cycle, not the BOP one",
+   60 <= C["cab"] <= 90, str(C["cab"]))
 ok("the monthly debt stock allows for the Treasury's lag",
    110 <= C["debt"] <= 150, str(C["debt"]))
 ok("but a weekly auction still gets days, not months",

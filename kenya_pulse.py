@@ -116,7 +116,9 @@ REGISTER = {
     "kes_usd":   ("KES per USD",                  "External", "",       -1, "daily"),
     "kes_eur":   ("KES per EUR",                  "External", "",       -1, "daily"),
     "kes_gbp":   ("KES per GBP",                  "External", "",       -1, "daily"),
-    "cab":       ("Current account",              "External", "% GDP",  +1, "quarterly"),
+    # CBK restates this as a rolling 12-month % of GDP in every bi-monthly MPC
+    # press release, not on a slower quarterly BOP cycle - see MANUAL_CADENCE.
+    "cab":       ("Current account",              "External", "% GDP",  +1, "bi-monthly"),
 
     "gdp":       ("GDP growth",                   "Activity", "%",      +1, "quarterly"),
     "pmi":       ("Stanbic PMI",                  "Activity", "",       +1, "monthly"),
@@ -880,7 +882,12 @@ MANUAL_CADENCE = {
     "debt": 120,          # monthly, Treasury publishes a couple of months back
     "debt_gdp": 200,      # quarterly in practice, and lags the debt stock
     "gdp": 200,           # quarterly, KNBS about three months behind the quarter
-    "cab": 200,           # quarterly balance of payments, same shape
+    # Not quarterly BOP statistics, which do lag like debt_gdp above. CBK
+    # restates this as a rolling 12-month % of GDP in every MPC press release
+    # (bi-monthly, ~60 days apart: -3.0% as of 30-06-2026 in the August
+    # release, -3.1% as of 31-08-2026 by the October one), so a reading held
+    # for 200 days was already a full MPC cycle behind and nothing said so.
+    "cab": 75,
 }
 
 
@@ -1717,7 +1724,7 @@ RELEASES = {
     "debt":     ("Public debt stock",     "Treasury", "mid-month"),
     "debt_gdp": ("Debt to GDP",           "Treasury", "mid-month"),
     "gdp":      ("Quarterly GDP",         "KNBS",     "~10 weeks after quarter end"),
-    "cab":      ("Current account",       "CBK",      "quarterly"),
+    "cab":      ("Current account",       "CBK",      "every MPC statement, ~bi-monthly"),
 }
 
 
