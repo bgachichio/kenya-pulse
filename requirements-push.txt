@@ -3,6 +3,7 @@
 # 13-10-2026: refreshed (aiohttp, multidict 7, pydantic, starlette 1.8); OSV clean, none outdated at these pins.
 # 2026-10-19: vmupdates alert cleared (certifi, fastapi, py-vapid, starlette); OSV clean.
 # 2026-10-19: fastapi released 0.147.0 within the hour of the above; same pass, OSV clean.
+# 2026-10-24: certifi 2026.10.23 (2026.10.18 bundles compromised emSign roots, GHSA-6q48-6c7w-9gw2) and setuptools 84.2.1 (84.0.0: GHSA-xmj3-9gf7-h52w); vmupdates SECURITY.
 # 2026-10-19: setuptools pinned. `python -m venv` bundles 66.1.1 (six OSV advisories); the service does not import it, but a rebuild must not bring the old one back.
 fastapi==0.147.0
 uvicorn==0.54.0
@@ -16,5 +17,5 @@ aiohttp==3.14.5
 multidict==7.1.0
 requests==2.34.2
 urllib3==2.8.0
-certifi==2026.10.18
-setuptools==84.0.0
+certifi==2026.10.23
+setuptools==84.2.1
