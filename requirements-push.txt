@@ -6,7 +6,7 @@
 # 2026-11-11: weekly batch (vmupdates, 12 minor/patch, all OSV-clean): fastapi 0.162.4, starlette 1.10.0, pydantic 2.14.3 and pydantic-core 2.50.4, multidict 7.2.1, anyio, click, annotated-doc, typing-inspection, opentelemetry-api, pycparser pinned. pip itself is upgraded in the venv, not pinned here.
 # 2026-10-24: certifi 2026.10.23 (2026.10.18 bundles compromised emSign roots, GHSA-6q48-6c7w-9gw2) and setuptools 84.2.1 (84.0.0: GHSA-xmj3-9gf7-h52w); vmupdates SECURITY.
 # 2026-10-19: setuptools pinned. `python -m venv` bundles 66.1.1 (six OSV advisories); the service does not import it, but a rebuild must not bring the old one back.
-fastapi==0.162.4
+fastapi==0.163.1
 uvicorn==0.54.0
 pywebpush==2.5.0
 # pulled in by the above, pinned so the set is reproducible
