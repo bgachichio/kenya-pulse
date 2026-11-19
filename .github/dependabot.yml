@@ -1,0 +1,42 @@
+# Weekly, grouped dependency updates. Minor and patch releases arrive as one pull request per ecosystem on Monday 06:00
+# Nairobi; majors arrive one at a time; security updates always arrive on their own, at once. A new release waits 3 days
+# before Dependabot proposes it (cooldown), so a bad release is usually pulled before it reaches here.
+# Merging a Python pull request changes the pins in this repo only; the VM's venv is updated by hand (see the vault's
+# aiOS/Systems/vmwatch/UPDATES.md): snapshot, tests, pip install -r, restart.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule: {interval: weekly, day: monday, time: "06:00", timezone: Africa/Nairobi}
+    open-pull-requests-limit: 5
+    cooldown: {default-days: 3}
+    groups:
+      python-minor-and-patch: {update-types: [minor, patch]}
+    commit-message: {prefix: "push deps"}
+    labels: [dependencies]
+  - package-ecosystem: npm
+    directory: "/app"
+    schedule: {interval: weekly, day: monday, time: "06:00", timezone: Africa/Nairobi}
+    open-pull-requests-limit: 5
+    cooldown: {default-days: 3}
+    groups:
+      app-minor-and-patch: {update-types: [minor, patch]}
+    commit-message: {prefix: "app deps"}
+    labels: [dependencies]
+  - package-ecosystem: npm
+    directory: "/tests"
+    schedule: {interval: weekly, day: monday, time: "06:00", timezone: Africa/Nairobi}
+    open-pull-requests-limit: 3
+    cooldown: {default-days: 3}
+    groups:
+      tests-minor-and-patch: {update-types: [minor, patch]}
+    commit-message: {prefix: "test deps"}
+    labels: [dependencies]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: {interval: weekly, day: monday, time: "06:00", timezone: Africa/Nairobi}
+    cooldown: {default-days: 3}
+    groups:
+      actions: {patterns: ["*"]}
+    commit-message: {prefix: "ci"}
+    labels: [dependencies]
