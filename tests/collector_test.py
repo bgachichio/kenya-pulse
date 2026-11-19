@@ -681,7 +681,7 @@ kp.src_te = lambda: ({"pmi": 50.1}, {"pmi": "2026-08-01"})
 kp.src_manual = lambda: ({"npl": 16.4,
                           "cab": -3.0, "gdp": 5.3, "debt": 11.6,
                           "debt_gdp": 69.9},
-                         {"npl": "2026-08-20"})
+                         {"npl": (_date.today() - _td(days=5)).isoformat()})   # relative to today, like the panel dates above: a fixed date went stale on its own
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     kp.sources_report()
