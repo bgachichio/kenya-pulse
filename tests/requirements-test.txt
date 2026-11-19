@@ -6,5 +6,5 @@ httpx==0.28.1
 # The scrapers are parsed against real markup rather than a stub, because a
 # stub would test nothing. Without these the parser checks skip and say so.
 
-beautifulsoup4==4.13.4
+beautifulsoup4==4.15.0
 lxml==5.3.0
